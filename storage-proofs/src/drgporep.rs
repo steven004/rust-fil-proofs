@@ -270,9 +270,8 @@ where
 
             let tree_d = &priv_inputs.aux.tree_d;
             let tree_r = &priv_inputs.aux.tree_r;
-            let domain_replica = tree_r.as_slice();
 
-            let data = domain_replica[challenge];
+            let data = tree_r.read_at(challenge);
 
             replica_nodes.push(DataProof {
                 proof: MerkleProof::new_from_proof(&tree_r.gen_proof(challenge)),
@@ -287,7 +286,7 @@ where
                     let proof = tree_r.gen_proof(*p);
                     DataProof {
                         proof: MerkleProof::new_from_proof(&proof),
-                        data: domain_replica[*p],
+                        data: tree_r.read_at(*p),
                     }
                 }));
             }
@@ -309,8 +308,9 @@ where
                     pub_params.graph.degree(),
                     pub_params.sloth_iter,
                     &pub_inputs.replica_id,
-                    domain_replica,
+                    tree_r.as_ref(),
                     challenge,
+                    tree_r.read_at(challenge),
                     parents,
                 )?
                 .into_bytes();
