@@ -1,5 +1,3 @@
-use crate::io::fr32::padded_bytes;
-use crate::io::fr32::unpadded_bytes;
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Sub};
 
@@ -21,12 +19,6 @@ impl From<UnpaddedBytesAmount> for usize {
     }
 }
 
-impl From<UnpaddedBytesAmount> for PaddedBytesAmount {
-    fn from(n: UnpaddedBytesAmount) -> Self {
-        PaddedBytesAmount(padded_bytes(n.0 as usize) as u64)
-    }
-}
-
 impl From<PaddedBytesAmount> for u64 {
     fn from(n: PaddedBytesAmount) -> Self {
         n.0
@@ -36,12 +28,6 @@ impl From<PaddedBytesAmount> for u64 {
 impl From<PaddedBytesAmount> for usize {
     fn from(n: PaddedBytesAmount) -> Self {
         n.0 as usize
-    }
-}
-
-impl From<PaddedBytesAmount> for UnpaddedBytesAmount {
-    fn from(n: PaddedBytesAmount) -> Self {
-        UnpaddedBytesAmount(unpadded_bytes(n.0))
     }
 }
 

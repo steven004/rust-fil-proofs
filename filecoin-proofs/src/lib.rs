@@ -16,6 +16,7 @@ extern crate sapling_crypto;
 extern crate tempfile;
 #[macro_use]
 extern crate failure;
+extern crate blake2;
 extern crate byteorder;
 extern crate itertools;
 #[macro_use]
@@ -33,5 +34,9 @@ use logging_toolkit::make_logger;
 use slog::Logger;
 
 lazy_static! {
-    pub static ref FCP_LOG: Logger = make_logger("filecoin-proofs");
+    pub static ref FCP_LOG: Logger = make_logger(
+        "filecoin-proofs",
+        "RUST_PROOFS_LOG_JSON",
+        "RUST_PROOFS_MIN_LOG_LEVEL"
+    );
 }

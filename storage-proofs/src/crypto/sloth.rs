@@ -1,5 +1,4 @@
-use ff::Field;
-use pairing::Engine;
+use pairing::{Engine, Field};
 
 pub const DEFAULT_ROUNDS: usize = 1;
 
@@ -58,9 +57,9 @@ pub fn decode<E: Engine>(key: &E::Fr, ciphertext: &E::Fr, rounds: usize) -> E::F
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ff::PrimeField;
     use num_bigint::BigUint;
     use pairing::bls12_381::{Bls12, Fr, FrRepr};
+    use pairing::PrimeField;
     use std::str::FromStr;
 
     // the modulus from `bls12_381::Fr`

@@ -5,10 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use bellman::groth16;
-use ff::PrimeField;
 use memmap::MmapOptions;
 use pairing::bls12_381::{Bls12, Fr};
-use pairing::Engine;
+use pairing::{Engine, PrimeField};
 use sapling_crypto::jubjub::JubjubBls12;
 
 use crate::api::post_adapter::*;
@@ -16,10 +15,7 @@ use crate::error;
 use crate::error::ExpectWithBacktrace;
 use crate::FCP_LOG;
 use sector_base::api::bytes_amount::{PaddedBytesAmount, UnpaddedBytesAmount};
-use sector_base::api::porep_config::PoRepConfig;
-use sector_base::api::porep_config::PoRepProofPartitions;
-use sector_base::api::post_config::PoStConfig;
-use sector_base::api::post_config::PoStProofPartitions;
+use sector_base::api::sector_store::SectorConfig;
 use sector_base::io::fr32::write_unpadded;
 use storage_proofs::circuit::multi_proof::MultiProof;
 use storage_proofs::circuit::vdf_post::{VDFPoStCircuit, VDFPostCompound};
@@ -30,16 +26,14 @@ use storage_proofs::drgraph::{DefaultTreeHasher, Graph};
 use storage_proofs::fr32::{bytes_into_fr, fr_into_bytes, Fr32Ary};
 use storage_proofs::hasher::pedersen::{PedersenDomain, PedersenHasher};
 use storage_proofs::hasher::{Domain, Hasher};
-use storage_proofs::layered_drgporep::{self, ChallengeRequirements, LayerChallenges};
+use storage_proofs::layered_drgporep::{self, LayerChallenges};
 use storage_proofs::merkle::MerkleTree;
 use storage_proofs::porep::{replica_id, PoRep, Tau};
-use storage_proofs::proof::{NoRequirements, ProofScheme};
+use storage_proofs::proof::ProofScheme;
 use storage_proofs::vdf_post::{self, VDFPoSt};
 use storage_proofs::vdf_sloth::{self, Sloth};
 use storage_proofs::zigzag_drgporep::ZigZagDrgPoRep;
 use storage_proofs::zigzag_graph::ZigZagBucketGraph;
-
-const SINGLE_PARTITION_PROOF_LEN: usize = 192;
 
 pub type Commitment = Fr32Ary;
 pub type ChallengeSeed = Fr32Ary;
@@ -47,7 +41,20 @@ pub type ChallengeSeed = Fr32Ary;
 /// FrSafe is an array of the largest whole number of bytes guaranteed not to overflow the field.
 type FrSafe = [u8; 31];
 
-const POREP_MINIMUM_CHALLENGES: usize = 1; // FIXME: 8,000
+/// How big, in bytes, is the SNARK proof exposed by the API?
+///
+/// Note: These values need to be ept in sync with what's in api/mod.rs.
+/// Due to limitations of cbindgen, we can't define a constant whose value is
+/// a non-primitive (e.g. an expression like 192 * 2 or internal::STUFF) and
+/// see the constant in the generated C-header file.
+const SNARK_BYTES: usize = 192;
+const POREP_PARTITIONS: usize = 2;
+const POREP_PROOF_BYTES: usize = SNARK_BYTES * POREP_PARTITIONS;
+
+const POST_PARTITIONS: usize = 1;
+const POST_PROOF_BYTES: usize = SNARK_BYTES * POST_PARTITIONS;
+
+type SnarkProof = [u8; POREP_PROOF_BYTES];
 
 lazy_static! {
     pub static ref ENGINE_PARAMS: JubjubBls12 = JubjubBls12::new();
@@ -121,23 +128,24 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn get_zigzag_params(porep_config: PoRepConfig) -> error::Result<Arc<groth16::Parameters<Bls12>>> {
-    let public_params = public_params(PaddedBytesAmount::from(porep_config));
+fn get_zigzag_params(
+    sector_bytes: PaddedBytesAmount,
+) -> error::Result<Arc<groth16::Parameters<Bls12>>> {
+    let public_params = public_params(sector_bytes);
 
     let get_params =
         || ZigZagCompound::groth_params(&public_params, &ENGINE_PARAMS).map_err(Into::into);
 
     Ok(lookup_groth_params(
-        format!(
-            "ZIGZAG[{}]",
-            usize::from(PaddedBytesAmount::from(porep_config))
-        ),
+        format!("ZIGZAG[{}]", usize::from(sector_bytes)),
         get_params,
     )?)
 }
 
-fn get_post_params(post_config: PoStConfig) -> error::Result<Arc<groth16::Parameters<Bls12>>> {
-    let post_public_params = post_public_params(post_config);
+fn get_post_params(
+    sector_bytes: PaddedBytesAmount,
+) -> error::Result<Arc<groth16::Parameters<Bls12>>> {
+    let post_public_params = post_public_params(sector_bytes);
 
     let get_params = || {
         <VDFPostCompound as CompoundProof<
@@ -149,31 +157,29 @@ fn get_post_params(post_config: PoStConfig) -> error::Result<Arc<groth16::Parame
     };
 
     Ok(lookup_groth_params(
-        format!(
-            "POST[{}]",
-            usize::from(PaddedBytesAmount::from(post_config))
-        ),
+        format!("POST[{}]", usize::from(sector_bytes)),
         get_params,
     )?)
 }
 
-fn get_zigzag_verifying_key(porep_config: PoRepConfig) -> error::Result<Arc<Bls12VerifyingKey>> {
-    let public_params = public_params(PaddedBytesAmount::from(porep_config));
+fn get_zigzag_verifying_key(
+    sector_bytes: PaddedBytesAmount,
+) -> error::Result<Arc<Bls12VerifyingKey>> {
+    let public_params = public_params(sector_bytes);
 
     let get_verifying_key =
         || ZigZagCompound::verifying_key(&public_params, &ENGINE_PARAMS).map_err(Into::into);
 
     Ok(lookup_verifying_key(
-        format!(
-            "ZIGZAG[{}]",
-            usize::from(PaddedBytesAmount::from(porep_config))
-        ),
+        format!("ZIGZAG[{}]", usize::from(sector_bytes)),
         get_verifying_key,
     )?)
 }
 
-fn get_post_verifying_key(post_config: PoStConfig) -> error::Result<Arc<Bls12VerifyingKey>> {
-    let post_public_params = post_public_params(post_config);
+fn get_post_verifying_key(
+    sector_bytes: PaddedBytesAmount,
+) -> error::Result<Arc<Bls12VerifyingKey>> {
+    let post_public_params = post_public_params(sector_bytes);
 
     let get_verifying_key = || {
         <VDFPostCompound as CompoundProof<
@@ -185,10 +191,7 @@ fn get_post_verifying_key(post_config: PoStConfig) -> error::Result<Arc<Bls12Ver
     };
 
     Ok(lookup_verifying_key(
-        format!(
-            "POST[{}]",
-            usize::from(PaddedBytesAmount::from(post_config))
-        ),
+        format!("POST[{}]", usize::from(sector_bytes)),
         get_verifying_key,
     )?)
 }
@@ -208,14 +211,14 @@ lazy_static! {
 }
 
 fn setup_params(sector_bytes: PaddedBytesAmount) -> layered_drgporep::SetupParams {
-    let sector_bytes = u64::from(sector_bytes);
+    let sector_bytes = usize::from(sector_bytes);
 
     assert!(
         sector_bytes % 32 == 0,
         "sector_bytes ({}) must be a multiple of 32",
         sector_bytes,
     );
-    let nodes = sector_bytes / 32 as usize;
+    let nodes = sector_bytes / 32;
     layered_drgporep::SetupParams {
         drg: DrgParams {
             nodes,
@@ -247,12 +250,10 @@ lazy_static! {
         PedersenDomain(Fr::from_str("12345").unwrap().into_repr());
 }
 
-fn post_setup_params(post_config: PoStConfig) -> PostSetupParams {
-    let size = PaddedBytesAmount::from(post_config);
-
+fn post_setup_params(sector_bytes: PaddedBytesAmount) -> PostSetupParams {
     vdf_post::SetupParams::<PedersenDomain, vdf_sloth::Sloth> {
         challenge_count: POST_CHALLENGE_COUNT,
-        sector_size: size.into(),
+        sector_size: sector_bytes.into(),
         post_epochs: POST_EPOCHS,
         setup_params_vdf: vdf_sloth::SetupParams {
             key: *POST_VDF_KEY,
@@ -262,8 +263,8 @@ fn post_setup_params(post_config: PoStConfig) -> PostSetupParams {
     }
 }
 
-pub fn post_public_params(post_config: PoStConfig) -> PostPublicParams {
-    VDFPoSt::<PedersenHasher, vdf_sloth::Sloth>::setup(&post_setup_params(post_config)).unwrap()
+pub fn post_public_params(sector_bytes: PaddedBytesAmount) -> PostPublicParams {
+    VDFPoSt::<PedersenHasher, vdf_sloth::Sloth>::setup(&post_setup_params(sector_bytes)).unwrap()
 }
 
 fn commitment_from_fr<E: Engine>(fr: E::Fr) -> Commitment {
@@ -310,7 +311,7 @@ pub fn generate_post_fixed_sectors_count(
     let faults: Vec<u64> = Vec::new();
 
     let setup_params = compound_proof::SetupParams {
-        vanilla_params: &post_setup_params(fixed.post_config),
+        vanilla_params: &post_setup_params(fixed.sector_bytes),
         engine_params: &(*ENGINE_PARAMS),
         partitions: None,
     };
@@ -359,18 +360,22 @@ pub fn generate_post_fixed_sectors_count(
 
     let priv_inputs = vdf_post::PrivateInputs::<PedersenHasher>::new(&borrowed_trees[..]);
 
-    let groth_params = get_post_params(fixed.post_config)?;
+    let groth_params = get_post_params(fixed.sector_bytes)?;
 
     let proof = VDFPostCompound::prove(&pub_params, &pub_inputs, &priv_inputs, &groth_params)
         .expect("failed while proving");
 
-    let mut buf = Vec::with_capacity(
-        SINGLE_PARTITION_PROOF_LEN * usize::from(PoStProofPartitions::from(fixed.post_config)),
-    );
+    let mut buf = Vec::with_capacity(POST_PROOF_BYTES);
 
     proof.write(&mut buf)?;
 
-    Ok(GeneratePoStFixedSectorsCountOutput { proof: buf, faults })
+    let mut proof_bytes = [0; POST_PROOF_BYTES];
+    proof_bytes.copy_from_slice(&buf);
+
+    Ok(GeneratePoStFixedSectorsCountOutput {
+        proof: proof_bytes,
+        faults,
+    })
 }
 
 fn verify_post_fixed_sectors_count(
@@ -384,7 +389,7 @@ fn verify_post_fixed_sectors_count(
     };
 
     let compound_setup_params = compound_proof::SetupParams {
-        vanilla_params: &post_setup_params(fixed.post_config),
+        vanilla_params: &post_setup_params(fixed.sector_bytes),
         engine_params: &(*ENGINE_PARAMS),
         partitions: None,
     };
@@ -412,27 +417,17 @@ fn verify_post_fixed_sectors_count(
         faults: fixed.faults.clone(),
     };
 
-    let verifying_key = get_post_verifying_key(fixed.post_config)?;
+    let verifying_key = get_post_verifying_key(fixed.sector_bytes)?;
 
-    let num_post_proof_bytes =
-        SINGLE_PARTITION_PROOF_LEN * usize::from(PoStProofPartitions::from(fixed.post_config));
-
-    let proof = MultiProof::new_from_reader(
-        Some(usize::from(PoStProofPartitions::from(fixed.post_config))),
-        &fixed.proof[0..num_post_proof_bytes],
-        &verifying_key,
-    )?;
+    let proof =
+        MultiProof::new_from_reader(Some(POST_PARTITIONS), &fixed.proof[0..192], &verifying_key)?;
 
     // For some reason, the circuit test does not verify when called in tests here.
     // However, everything up to that point does/should work — so we want to continue to exercise
     // for integration purposes.
-    let _fixme_ignore: error::Result<bool> = VDFPostCompound::verify(
-        &compound_public_params,
-        &public_inputs,
-        &proof,
-        &NoRequirements,
-    )
-    .map_err(Into::into);
+    let _fixme_ignore: error::Result<bool> =
+        VDFPostCompound::verify(&compound_public_params, &public_inputs, &proof)
+            .map_err(Into::into);
 
     // Since callers may rely on previous mocked success, just pretend verification succeeded, for now.
     Ok(VerifyPoStFixedSectorsCountOutput { is_valid: true })
@@ -450,12 +445,11 @@ fn make_merkle_tree<T: Into<PathBuf> + AsRef<Path>>(
     public_params(bytes).graph.merkle_tree(&data)
 }
 
-#[derive(Clone, Debug)]
 pub struct SealOutput {
     pub comm_r: Commitment,
     pub comm_r_star: Commitment,
     pub comm_d: Commitment,
-    pub proof: Vec<u8>,
+    pub snark_proof: SnarkProof,
 }
 
 /// Minimal support for cleaning (deleting) a file unless it was successfully populated.
@@ -482,13 +476,13 @@ impl<T: AsRef<Path>> Drop for FileCleanup<T> {
 }
 
 pub fn seal<T: Into<PathBuf> + AsRef<Path>>(
-    porep_config: PoRepConfig,
+    sector_config: &SectorConfig,
     in_path: T,
     out_path: T,
     prover_id_in: &FrSafe,
     sector_id_in: &FrSafe,
 ) -> error::Result<SealOutput> {
-    let sector_bytes = u64::from(PaddedBytesAmount::from(porep_config));
+    let sector_bytes = usize::from(sector_config.sector_bytes());
 
     let mut cleanup = FileCleanup::new(&out_path);
 
@@ -497,7 +491,7 @@ pub fn seal<T: Into<PathBuf> + AsRef<Path>>(
     let f_data = OpenOptions::new().read(true).write(true).open(&out_path)?;
 
     // Zero-pad the data to the requested size by extending the underlying file if needed.
-    f_data.set_len(sector_bytes)?;
+    f_data.set_len(sector_bytes as u64)?;
 
     let mut data = unsafe { MmapOptions::new().map_mut(&f_data).unwrap() };
 
@@ -508,9 +502,9 @@ pub fn seal<T: Into<PathBuf> + AsRef<Path>>(
     let replica_id = replica_id::<DefaultTreeHasher>(prover_id, sector_id);
 
     let compound_setup_params = compound_proof::SetupParams {
-        vanilla_params: &setup_params(PaddedBytesAmount::from(porep_config)),
+        vanilla_params: &setup_params(sector_config.sector_bytes()),
         engine_params: &(*ENGINE_PARAMS),
-        partitions: Some(usize::from(PoRepProofPartitions::from(porep_config))),
+        partitions: Some(POREP_PARTITIONS),
     };
 
     let compound_public_params = ZigZagCompound::setup(&compound_setup_params)?;
@@ -540,9 +534,9 @@ pub fn seal<T: Into<PathBuf> + AsRef<Path>>(
         tau: tau.layer_taus,
     };
 
-    let groth_params = get_zigzag_params(porep_config)?;
+    let groth_params = get_zigzag_params(sector_config.sector_bytes())?;
 
-    info!(FCP_LOG, "got groth params ({}) while sealing", u64::from(PaddedBytesAmount::from(porep_config)); "target" => "params");
+    info!(FCP_LOG, "got groth params ({}) while sealing", u64::from(sector_config.sector_bytes()); "target" => "params");
 
     let proof = ZigZagCompound::prove(
         &compound_public_params,
@@ -551,11 +545,12 @@ pub fn seal<T: Into<PathBuf> + AsRef<Path>>(
         &groth_params,
     )?;
 
-    let mut buf = Vec::with_capacity(
-        SINGLE_PARTITION_PROOF_LEN * usize::from(PoRepProofPartitions::from(porep_config)),
-    );
+    let mut buf = Vec::with_capacity(POREP_PROOF_BYTES);
 
     proof.write(&mut buf)?;
+
+    let mut proof_bytes = [0; POREP_PROOF_BYTES];
+    proof_bytes.copy_from_slice(&buf);
 
     let comm_r = commitment_from_fr::<Bls12>(public_tau.comm_r.into());
     let comm_d = commitment_from_fr::<Bls12>(public_tau.comm_d.into());
@@ -564,13 +559,13 @@ pub fn seal<T: Into<PathBuf> + AsRef<Path>>(
     // Verification is cheap when parameters are cached,
     // and it is never correct to return a proof which does not verify.
     verify_seal(
-        porep_config,
+        sector_config,
         comm_r,
         comm_d,
         comm_r_star,
         prover_id_in,
         sector_id_in,
-        &buf,
+        &proof_bytes,
     )
     .expect("post-seal verification sanity check failed");
 
@@ -578,12 +573,12 @@ pub fn seal<T: Into<PathBuf> + AsRef<Path>>(
         comm_r,
         comm_r_star,
         comm_d,
-        proof: buf,
+        snark_proof: proof_bytes,
     })
 }
 
 pub fn get_unsealed_range<T: Into<PathBuf> + AsRef<Path>>(
-    porep_config: PoRepConfig,
+    sector_config: &SectorConfig,
     sealed_path: T,
     output_path: T,
     prover_id_in: &FrSafe,
@@ -591,20 +586,21 @@ pub fn get_unsealed_range<T: Into<PathBuf> + AsRef<Path>>(
     offset: u64,
     num_bytes: UnpaddedBytesAmount,
 ) -> error::Result<(UnpaddedBytesAmount)> {
+    let sector_bytes: usize = sector_config.sector_bytes().into();
+
     let prover_id = pad_safe_fr(prover_id_in);
     let sector_id = pad_safe_fr(sector_id_in);
     let replica_id = replica_id::<DefaultTreeHasher>(prover_id, sector_id);
 
     let f_in = File::open(sealed_path)?;
     let mut data = Vec::new();
-    f_in.take(u64::from(PaddedBytesAmount::from(porep_config)))
-        .read_to_end(&mut data)?;
+    f_in.take(sector_bytes as u64).read_to_end(&mut data)?;
 
     let f_out = File::create(output_path)?;
     let mut buf_writer = BufWriter::new(f_out);
 
     let unsealed = ZigZagDrgPoRep::extract_all(
-        &public_params(PaddedBytesAmount::from(porep_config)),
+        &public_params(sector_config.sector_bytes()),
         &replica_id,
         &data,
     )?;
@@ -620,7 +616,7 @@ pub fn get_unsealed_range<T: Into<PathBuf> + AsRef<Path>>(
 }
 
 pub fn verify_seal(
-    porep_config: PoRepConfig,
+    sector_config: &SectorConfig,
     comm_r: Commitment,
     comm_d: Commitment,
     comm_r_star: Commitment,
@@ -628,7 +624,7 @@ pub fn verify_seal(
     sector_id_in: &FrSafe,
     proof_vec: &[u8],
 ) -> error::Result<bool> {
-    let sector_bytes = PaddedBytesAmount::from(porep_config);
+    let sector_bytes = sector_config.sector_bytes();
     let prover_id = pad_safe_fr(prover_id_in);
     let sector_id = pad_safe_fr(sector_id_in);
     let replica_id = replica_id::<DefaultTreeHasher>(prover_id, sector_id);
@@ -638,9 +634,9 @@ pub fn verify_seal(
     let comm_r_star = bytes_into_fr::<Bls12>(&comm_r_star)?;
 
     let compound_setup_params = compound_proof::SetupParams {
-        vanilla_params: &setup_params(PaddedBytesAmount::from(porep_config)),
+        vanilla_params: &setup_params(sector_config.sector_bytes()),
         engine_params: &(*ENGINE_PARAMS),
-        partitions: Some(usize::from(PoRepProofPartitions::from(porep_config))),
+        partitions: Some(POREP_PARTITIONS),
     };
 
     let compound_public_params: compound_proof::PublicParams<
@@ -659,25 +655,13 @@ pub fn verify_seal(
         k: None,
     };
 
-    let verifying_key = get_zigzag_verifying_key(porep_config)?;
+    let verifying_key = get_zigzag_verifying_key(sector_bytes)?;
 
     info!(FCP_LOG, "got verifying key ({}) while verifying seal", u64::from(sector_bytes); "target" => "params");
 
-    let proof = MultiProof::new_from_reader(
-        Some(usize::from(PoRepProofPartitions::from(porep_config))),
-        proof_vec,
-        &verifying_key,
-    )?;
+    let proof = MultiProof::new_from_reader(Some(POREP_PARTITIONS), proof_vec, &verifying_key)?;
 
-    ZigZagCompound::verify(
-        &compound_public_params,
-        &public_inputs,
-        &proof,
-        &ChallengeRequirements {
-            minimum_challenges: POREP_MINIMUM_CHALLENGES,
-        },
-    )
-    .map_err(Into::into)
+    ZigZagCompound::verify(&compound_public_params, &public_inputs, &proof).map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -686,16 +670,12 @@ mod tests {
 
     use rand::{thread_rng, Rng};
     use sector_base::api::disk_backed_storage::new_sector_store;
-    use sector_base::api::sector_class::SectorClass;
+    use sector_base::api::disk_backed_storage::ConfiguredStore;
     use sector_base::api::sector_store::SectorStore;
     use std::fs::create_dir_all;
     use std::fs::File;
     use std::io::Read;
-    use std::io::Seek;
-    use std::io::SeekFrom;
-    use std::io::Write;
     use std::thread;
-    use tempfile::NamedTempFile;
 
     struct Harness {
         prover_id: FrSafe,
@@ -714,11 +694,11 @@ mod tests {
         Exact(&'a [u8]),
     }
 
-    fn create_harness(sector_class: SectorClass, bytes_amts: &[BytesAmount]) -> Harness {
-        let store = create_sector_store(sector_class);
+    fn create_harness(cs: &ConfiguredStore, bytes_amts: &[BytesAmount]) -> Harness {
+        let store = create_sector_store(cs);
         let mgr = store.manager();
-        let cfg = store.sector_config();
-        let max: u64 = store.sector_config().max_unsealed_bytes_per_sector().into();
+        let cfg = store.config();
+        let max: u64 = store.config().max_unsealed_bytes_per_sector().into();
 
         let staged_access = mgr
             .new_staging_sector_access()
@@ -743,20 +723,10 @@ mod tests {
                 BytesAmount::Offset(m) => make_random_bytes(max - m),
             };
 
-            // write contents to temp file and return mutable handle
-            let mut file = {
-                let mut file = NamedTempFile::new().expects("could not create named temp file");
-                let _ = file.write_all(&contents);
-                let _ = file
-                    .seek(SeekFrom::Start(0))
-                    .expects("failed to seek to beginning of file");
-                file
-            };
-
             assert_eq!(
                 contents.len(),
                 usize::from(
-                    mgr.write_and_preprocess(&staged_access, &mut file)
+                    mgr.write_and_preprocess(&staged_access, &contents)
                         .expect("failed to write and preprocess")
                 )
             );
@@ -764,48 +734,42 @@ mod tests {
             written_contents.push(contents);
         }
 
-        let seal_output = seal(
-            PoRepConfig::from(sector_class),
-            &staged_access,
-            &sealed_access,
-            &prover_id,
-            &sector_id,
-        )
-        .expect("failed to seal");
+        let seal_output = seal(cfg, &staged_access, &sealed_access, &prover_id, &sector_id)
+            .expect("failed to seal");
 
         let SealOutput {
             comm_r,
             comm_d,
             comm_r_star,
-            proof,
-        } = seal_output.clone();
+            snark_proof,
+        } = seal_output;
 
         // valid commitments
         {
             let is_valid = verify_seal(
-                PoRepConfig::from(sector_class),
+                cfg,
                 comm_r,
                 comm_d,
                 comm_r_star,
                 &prover_id,
                 &sector_id,
-                &proof,
+                &snark_proof,
             )
             .expect("failed to run verify_seal");
 
             assert!(
                 is_valid,
-                "verification of valid proof failed for sector_class={:?}, bytes_amts={:?}",
-                sector_class, bytes_amts
+                "verification of valid proof failed for cs={:?}, bytes_amts={:?}",
+                cs, bytes_amts
             );
         }
 
         // unseal the whole thing
         assert_eq!(
-            u64::from(UnpaddedBytesAmount::from(PoRepConfig::from(sector_class))),
+            u64::from(cfg.max_unsealed_bytes_per_sector()),
             u64::from(
                 get_unsealed_range(
-                    PoRepConfig::from(sector_class),
+                    cfg,
                     &sealed_access,
                     &unseal_access,
                     &prover_id,
@@ -828,7 +792,7 @@ mod tests {
         }
     }
 
-    fn create_sector_store(sector_class: SectorClass) -> Box<SectorStore> {
+    fn create_sector_store(cs: &ConfiguredStore) -> Box<SectorStore> {
         let staging_path = tempfile::tempdir().unwrap().path().to_owned();
         let sealed_path = tempfile::tempdir().unwrap().path().to_owned();
 
@@ -836,7 +800,7 @@ mod tests {
         create_dir_all(&sealed_path).expect("failed to create sealed dir");
 
         Box::new(new_sector_store(
-            sector_class,
+            cs,
             sealed_path.to_str().unwrap().to_owned(),
             staging_path.to_str().unwrap().to_owned(),
         ))
@@ -847,19 +811,19 @@ mod tests {
         (0..num_bytes_to_make).map(|_| rng.gen()).collect()
     }
 
-    fn seal_verify_aux(sector_class: SectorClass, bytes_amt: BytesAmount) {
-        let h = create_harness(sector_class, &vec![bytes_amt]);
+    fn seal_verify_aux(cs: ConfiguredStore, bytes_amt: BytesAmount) {
+        let h = create_harness(&cs, &vec![bytes_amt]);
 
         // invalid commitments
         {
             let is_valid = verify_seal(
-                h.store.proofs_config().porep_config(),
+                h.store.config(),
                 h.seal_output.comm_d,
                 h.seal_output.comm_r_star,
                 h.seal_output.comm_r,
                 &h.prover_id,
                 &h.sector_id,
-                &h.seal_output.proof,
+                &h.seal_output.snark_proof,
             )
             .expect("failed to run verify_seal");
 
@@ -870,9 +834,9 @@ mod tests {
         }
     }
 
-    fn post_verify_aux(sector_class: SectorClass, bytes_amt: BytesAmount) {
+    fn post_verify_aux(cs: ConfiguredStore, bytes_amt: BytesAmount) {
         let mut rng = thread_rng();
-        let h = create_harness(sector_class, &vec![bytes_amt]);
+        let h = create_harness(&cs, &vec![bytes_amt]);
         let seal_output = h.seal_output;
 
         let comm_r = seal_output.comm_r;
@@ -880,7 +844,7 @@ mod tests {
         let challenge_seed = rng.gen();
 
         let post_output = generate_post(GeneratePoStDynamicSectorsCountInput {
-            post_config: h.store.proofs_config().post_config(),
+            sector_bytes: h.store.config().sector_bytes(),
             challenge_seed,
             input_parts: vec![
                 (Some(h.sealed_access.clone()), comm_r),
@@ -890,7 +854,7 @@ mod tests {
         .expect("PoSt generation failed");
 
         let result = verify_post(VerifyPoStDynamicSectorsCountInput {
-            post_config: h.store.proofs_config().post_config(),
+            sector_bytes: h.store.config().sector_bytes(),
             comm_rs,
             challenge_seed,
             proofs: post_output.proofs,
@@ -901,8 +865,8 @@ mod tests {
         assert!(result.is_valid, "verification of valid proof failed");
     }
 
-    fn seal_unsealed_roundtrip_aux(sector_class: SectorClass, bytes_amt: BytesAmount) {
-        let h = create_harness(sector_class, &vec![bytes_amt]);
+    fn seal_unsealed_roundtrip_aux(cs: ConfiguredStore, bytes_amt: BytesAmount) {
+        let h = create_harness(&cs, &vec![bytes_amt]);
 
         let mut file = File::open(&h.unseal_access).unwrap();
         let mut buf = Vec::new();
@@ -918,8 +882,8 @@ mod tests {
 
             assert_eq!(
                 &buf, &read_unsealed_buf,
-                "test A contents differed for sector_class={:?}, bytes_amt={:?}",
-                sector_class, bytes_amt
+                "test A contents differed for cs={:?}, bytes_amt={:?}",
+                cs, bytes_amt
             );
         }
 
@@ -938,19 +902,15 @@ mod tests {
             assert_eq!(
                 &buf[1..buf.len() - 1],
                 &read_unsealed_buf[..],
-                "test B contents differed for sector_class={:?}, bytes_amt={:?}",
-                sector_class,
+                "test B contents differed for cs={:?}, bytes_amt={:?}",
+                cs,
                 bytes_amt
             );
         }
 
         let byte_padding_amount = match bytes_amt {
             BytesAmount::Exact(bs) => {
-                let max: u64 = h
-                    .store
-                    .sector_config()
-                    .max_unsealed_bytes_per_sector()
-                    .into();
+                let max: u64 = h.store.config().max_unsealed_bytes_per_sector().into();
                 max - (bs.len() as u64)
             }
             BytesAmount::Max => 0,
@@ -960,22 +920,22 @@ mod tests {
         assert_eq!(
             h.written_contents[0].len(),
             buf.len() - (byte_padding_amount as usize),
-            "length of original and unsealed contents differed for sector_class={:?}, bytes_amt={:?}",
-            sector_class,
+            "length of original and unsealed contents differed for cs={:?}, bytes_amt={:?}",
+            cs,
             bytes_amt
         );
 
         assert_eq!(
             h.written_contents[0][..],
             buf[0..h.written_contents[0].len()],
-            "original and unsealed contents differed for sector_class={:?}, bytes_amt={:?}",
-            sector_class,
+            "original and unsealed contents differed for cs={:?}, bytes_amt={:?}",
+            cs,
             bytes_amt
         );
     }
 
-    fn seal_unsealed_range_roundtrip_aux(sector_class: SectorClass, bytes_amt: BytesAmount) {
-        let h = create_harness(sector_class, &vec![bytes_amt]);
+    fn seal_unsealed_range_roundtrip_aux(cs: ConfiguredStore, bytes_amt: BytesAmount) {
+        let h = create_harness(&cs, &vec![bytes_amt]);
 
         let offset = 5;
         let range_length = h.written_contents[0].len() as u64 - offset;
@@ -984,7 +944,7 @@ mod tests {
             range_length,
             u64::from(
                 get_unsealed_range(
-                    h.store.proofs_config().porep_config(),
+                    h.store.config(),
                     &PathBuf::from(&h.sealed_access),
                     &PathBuf::from(&h.unseal_access),
                     &h.prover_id,
@@ -1003,13 +963,13 @@ mod tests {
         assert_eq!(
             h.written_contents[0][(offset as usize)..],
             buf[0..(range_length as usize)],
-            "original and unsealed range contents differed for sector_class={:?}, bytes_amt={:?}",
-            sector_class,
+            "original and unsealed range contents differed for cs={:?}, bytes_amt={:?}",
+            cs,
             bytes_amt
         );
     }
 
-    fn write_and_preprocess_overwrites_unaligned_last_bytes_aux(sector_class: SectorClass) {
+    fn write_and_preprocess_overwrites_unaligned_last_bytes_aux(cs: ConfiguredStore) {
         // The minimal reproduction for the bug this regression test checks is to write
         // 32 bytes, then 95 bytes.
         // The bytes must sum to 127, since that is the required unsealed sector size.
@@ -1021,7 +981,7 @@ mod tests {
         let contents_b = [255; 95];
 
         let h = create_harness(
-            sector_class,
+            &cs,
             &vec![
                 BytesAmount::Exact(&contents_a),
                 BytesAmount::Exact(&contents_b),
@@ -1035,7 +995,7 @@ mod tests {
             .expect("could not create unseal access");
 
         let _ = get_unsealed_range(
-            h.store.proofs_config().porep_config(),
+            h.store.config(),
             &h.sealed_access,
             &unseal_access,
             &h.prover_id,
@@ -1053,21 +1013,21 @@ mod tests {
             contents_a.len() + contents_b.len(),
             buf_from_file.len(),
             "length of original and unsealed contents differed for {:?}",
-            sector_class
+            cs
         );
 
         assert_eq!(
             contents_a[..],
             buf_from_file[0..contents_a.len()],
             "original and unsealed contents differed for {:?}",
-            sector_class
+            cs
         );
 
         assert_eq!(
             contents_b[..],
             buf_from_file[contents_a.len()..contents_a.len() + contents_b.len()],
             "original and unsealed contents differed for {:?}",
-            sector_class
+            cs
         );
     }
 
@@ -1095,28 +1055,28 @@ mod tests {
     #[test]
     #[ignore] // Slow test – run only when compiled for release.
     fn seal_verify_test() {
-        seal_verify_aux(SectorClass::Test, BytesAmount::Max);
-        seal_verify_aux(SectorClass::Test, BytesAmount::Offset(5));
+        seal_verify_aux(ConfiguredStore::Test, BytesAmount::Max);
+        seal_verify_aux(ConfiguredStore::Test, BytesAmount::Offset(5));
     }
 
     #[test]
     #[ignore] // Slow test – run only when compiled for release.
     fn seal_unsealed_roundtrip_test() {
-        seal_unsealed_roundtrip_aux(SectorClass::Test, BytesAmount::Max);
-        seal_unsealed_roundtrip_aux(SectorClass::Test, BytesAmount::Offset(5));
+        seal_unsealed_roundtrip_aux(ConfiguredStore::Test, BytesAmount::Max);
+        seal_unsealed_roundtrip_aux(ConfiguredStore::Test, BytesAmount::Offset(5));
     }
 
     #[test]
     #[ignore] // Slow test – run only when compiled for release.
     fn seal_unsealed_range_roundtrip_test() {
-        seal_unsealed_range_roundtrip_aux(SectorClass::Test, BytesAmount::Max);
-        seal_unsealed_range_roundtrip_aux(SectorClass::Test, BytesAmount::Offset(5));
+        seal_unsealed_range_roundtrip_aux(ConfiguredStore::Test, BytesAmount::Max);
+        seal_unsealed_range_roundtrip_aux(ConfiguredStore::Test, BytesAmount::Offset(5));
     }
 
     #[test]
     #[ignore] // Slow test – run only when compiled for release.
     fn write_and_preprocess_overwrites_unaligned_last_bytes() {
-        write_and_preprocess_overwrites_unaligned_last_bytes_aux(SectorClass::Test);
+        write_and_preprocess_overwrites_unaligned_last_bytes_aux(ConfiguredStore::Test);
     }
 
     #[test]
@@ -1127,7 +1087,7 @@ mod tests {
         let spawned = (0..threads)
             .map(|_| {
                 thread::spawn(|| {
-                    seal_unsealed_range_roundtrip_aux(SectorClass::Test, BytesAmount::Max)
+                    seal_unsealed_range_roundtrip_aux(ConfiguredStore::Test, BytesAmount::Max)
                 })
             })
             .collect::<Vec<_>>();
@@ -1140,6 +1100,6 @@ mod tests {
     #[test]
     #[ignore]
     fn post_verify_test() {
-        post_verify_aux(SectorClass::Test, BytesAmount::Max);
+        post_verify_aux(ConfiguredStore::Test, BytesAmount::Max);
     }
 }

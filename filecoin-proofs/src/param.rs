@@ -1,4 +1,4 @@
-use blake2b_simd::State as Blake2b;
+use blake2::{Blake2b, Digest};
 use failure::{err_msg, Error};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -97,7 +97,7 @@ pub fn get_parameter_digest(parameter_id: &str) -> Result<String> {
 
     std::io::copy(&mut file, &mut hasher)?;
 
-    Ok(hasher.finalize().to_hex()[..32].into())
+    Ok(format!("{:.32x}", &hasher.result()))
 }
 
 pub fn publish_parameter_file(parameter_id: &str) -> Result<String> {

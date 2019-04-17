@@ -3,8 +3,6 @@ extern crate slog;
 extern crate slog_async;
 extern crate slog_json;
 extern crate slog_term;
-#[macro_use]
-extern crate lazy_static;
 
 use slog::Drain;
 use slog::FnValue;
@@ -13,12 +11,11 @@ use slog::LevelFilter;
 use slog::Logger;
 use std::env;
 
-lazy_static! {
-    static ref ROOT_LOGGER: Logger =
-        make_root_logger("FIL_PROOFS_LOG_JSON", "FIL_PROOFS_MIN_LOG_LEVEL");
-}
-
-pub fn make_root_logger(use_json_env_name: &str, min_log_level_env_name: &str) -> Logger {
+pub fn make_logger(
+    root_name: &'static str,
+    use_json_env_name: &str,
+    min_log_level_env_name: &str,
+) -> Logger {
     let drain = match env::var(use_json_env_name).as_ref().map(String::as_str) {
         Ok("true") => {
             let json_drain = slog_json::Json::new(std::io::stdout())
@@ -51,7 +48,7 @@ pub fn make_root_logger(use_json_env_name: &str, min_log_level_env_name: &str) -
 
     Logger::root(
         with_filter,
-        o!("place" => FnValue(move |info| {
+        o!("root" => root_name, "place" => FnValue(move |info| {
             format!("{}:{} {}",
                     info.file(),
                     info.line(),
@@ -59,8 +56,4 @@ pub fn make_root_logger(use_json_env_name: &str, min_log_level_env_name: &str) -
                     )
         })),
     )
-}
-
-pub fn make_logger(root_name: &'static str) -> Logger {
-    ROOT_LOGGER.new(o!("root" => root_name))
 }

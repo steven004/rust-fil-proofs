@@ -5,17 +5,15 @@ use std::path::Path;
 
 use crate::api::bytes_amount::{PaddedBytesAmount, UnpaddedBytesAmount};
 use crate::api::errors::SectorManagerErr;
-use crate::api::porep_config::PoRepConfig;
-use crate::api::post_config::PoStConfig;
-use crate::api::sector_class::SectorClass;
-use crate::api::sector_store::ProofsConfig;
 use crate::api::sector_store::SectorConfig;
 use crate::api::sector_store::SectorManager;
 use crate::api::sector_store::SectorStore;
 use crate::api::util;
 use crate::io::fr32::almost_truncate_to_unpadded_bytes;
 use crate::io::fr32::target_unpadded_bytes;
+use crate::io::fr32::unpadded_bytes;
 use crate::io::fr32::write_padded;
+use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
 
 // These sizes are for SEALED sectors. They are used to calculate the values of setup parameters.
 // They can be overridden by setting the corresponding environment variable (with FILECOIN_PROOFS_ prefix),
@@ -27,6 +25,57 @@ pub const TEST_SECTOR_SIZE: u64 = 1024;
 
 // Sector size, in bytes, during live operation.
 pub const LIVE_SECTOR_SIZE: u64 = 1 << 28; // 256MiB
+
+/// Initializes and returns a boxed SectorStore instance with very small, unrealistic/insecure parameters
+/// for use in testing.
+///
+/// # Arguments
+///
+/// * `staging_dir_path` - path to the staging directory
+/// * `sealed_dir_path`  - path to the sealed directory
+#[no_mangle]
+pub unsafe extern "C" fn init_new_test_sector_store(
+    staging_dir_path: *const libc::c_char,
+    sealed_dir_path: *const libc::c_char,
+) -> *mut Box<SectorStore> {
+    let boxed = Box::new(new_sector_store(
+        &ConfiguredStore::Test,
+        c_str_to_rust_str(sealed_dir_path).to_string(),
+        c_str_to_rust_str(staging_dir_path).to_string(),
+    ));
+    raw_ptr(boxed)
+}
+
+/// Initializes and returns a boxed SectorStore instance for non-test use.
+///
+/// # Arguments
+///
+/// * `staging_dir_path` - path to the staging directory
+/// * `sealed_dir_path`  - path to the sealed directory
+#[no_mangle]
+pub unsafe extern "C" fn init_new_sector_store(
+    staging_dir_path: *const libc::c_char,
+    sealed_dir_path: *const libc::c_char,
+) -> *mut Box<SectorStore> {
+    let boxed = Box::new(new_sector_store(
+        &ConfiguredStore::Live,
+        c_str_to_rust_str(sealed_dir_path).to_string(),
+        c_str_to_rust_str(staging_dir_path).to_string(),
+    ));
+
+    raw_ptr(boxed)
+}
+
+/// Destroys a boxed SectorStore by freeing its memory.
+///
+/// # Arguments
+///
+/// * `ss_ptr` - pointer to a boxed SectorStore
+///
+#[no_mangle]
+pub unsafe extern "C" fn destroy_storage(ss_ptr: *mut Box<SectorStore>) {
+    let _ = Box::from_raw(ss_ptr);
+}
 
 pub struct DiskManager {
     staging_path: String,
@@ -72,7 +121,7 @@ impl SectorManager for DiskManager {
     fn write_and_preprocess(
         &self,
         access: &str,
-        data: &mut dyn Read,
+        data: &[u8],
     ) -> Result<UnpaddedBytesAmount, SectorManagerErr> {
         OpenOptions::new()
             .read(true)
@@ -139,23 +188,24 @@ impl DiskManager {
 }
 
 pub struct Config {
-    pub porep_config: PoRepConfig,
-    pub post_config: PoStConfig,
+    pub sector_bytes: u64,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub enum ConfiguredStore {
+    Live = 0,
+    Test = 1,
 }
 
 pub struct ConcreteSectorStore {
-    proofs_config: Box<ProofsConfig>,
-    sector_config: Box<SectorConfig>,
+    config: Box<SectorConfig>,
     manager: Box<SectorManager>,
 }
 
 impl SectorStore for ConcreteSectorStore {
-    fn sector_config(&self) -> &SectorConfig {
-        self.sector_config.as_ref()
-    }
-
-    fn proofs_config(&self) -> &ProofsConfig {
-        self.proofs_config.as_ref()
+    fn config(&self) -> &SectorConfig {
+        self.config.as_ref()
     }
 
     fn manager(&self) -> &SectorManager {
@@ -164,7 +214,7 @@ impl SectorStore for ConcreteSectorStore {
 }
 
 pub fn new_sector_store(
-    sector_class: SectorClass,
+    cs: &ConfiguredStore,
     sealed_path: String,
     staging_path: String,
 ) -> ConcreteSectorStore {
@@ -173,48 +223,29 @@ pub fn new_sector_store(
         sealed_path,
     });
 
-    let sector_config = Box::new(Config::from(sector_class));
-    let proofs_config = Box::new(Config::from(sector_class));
+    let config = new_sector_config(cs);
 
-    ConcreteSectorStore {
-        proofs_config,
-        sector_config,
-        manager,
+    ConcreteSectorStore { config, manager }
+}
+
+pub fn new_sector_config(cs: &ConfiguredStore) -> Box<SectorConfig> {
+    match *cs {
+        ConfiguredStore::Live => Box::new(Config {
+            sector_bytes: LIVE_SECTOR_SIZE,
+        }),
+        ConfiguredStore::Test => Box::new(Config {
+            sector_bytes: TEST_SECTOR_SIZE,
+        }),
     }
 }
 
 impl SectorConfig for Config {
     fn max_unsealed_bytes_per_sector(&self) -> UnpaddedBytesAmount {
-        UnpaddedBytesAmount::from(self.porep_config)
+        UnpaddedBytesAmount(unpadded_bytes(self.sector_bytes))
     }
 
     fn sector_bytes(&self) -> PaddedBytesAmount {
-        PaddedBytesAmount::from(self.porep_config)
-    }
-}
-
-impl ProofsConfig for Config {
-    fn post_config(&self) -> PoStConfig {
-        self.post_config
-    }
-
-    fn porep_config(&self) -> PoRepConfig {
-        self.porep_config
-    }
-}
-
-impl From<SectorClass> for Config {
-    fn from(x: SectorClass) -> Self {
-        match x {
-            SectorClass::Test => Config {
-                porep_config: PoRepConfig::Test,
-                post_config: PoStConfig::Test,
-            },
-            SectorClass::Live(size, porep_p, post_p) => Config {
-                porep_config: PoRepConfig::Live(size, porep_p),
-                post_config: PoStConfig::Live(size, post_p),
-            },
-        }
+        PaddedBytesAmount(self.sector_bytes)
     }
 }
 
@@ -222,18 +253,13 @@ impl From<SectorClass> for Config {
 pub mod tests {
     use super::*;
 
-    use crate::api::porep_config::PoRepProofPartitions;
-    use crate::api::post_config::PoStProofPartitions;
-    use crate::api::sector_size::SectorSize;
     use crate::io::fr32::FR32_PADDING_MAP;
     use std::fs::create_dir_all;
     use std::fs::File;
     use std::io::Read;
-    use std::io::Write;
     use tempfile;
-    use tempfile::NamedTempFile;
 
-    fn create_sector_store(sector_class: SectorClass) -> Box<SectorStore> {
+    fn create_sector_store(cs: &ConfiguredStore) -> Box<SectorStore> {
         let staging_path = tempfile::tempdir().unwrap().path().to_owned();
         let sealed_path = tempfile::tempdir().unwrap().path().to_owned();
 
@@ -241,7 +267,7 @@ pub mod tests {
         create_dir_all(&sealed_path).expect("failed to create sealed dir");
 
         Box::new(new_sector_store(
-            sector_class,
+            &cs,
             sealed_path.to_str().unwrap().to_owned(),
             staging_path.to_str().unwrap().to_owned(),
         ))
@@ -258,27 +284,21 @@ pub mod tests {
     #[test]
     fn max_unsealed_bytes_per_sector_checks() {
         let xs = vec![
-            (
-                SectorClass::Live(
-                    SectorSize::TwoHundredFiftySixMiB,
-                    PoRepProofPartitions::Two,
-                    PoStProofPartitions::One,
-                ),
-                266338304,
-            ),
-            (SectorClass::Test, 1016),
+            (ConfiguredStore::Live, 266338304),
+            (ConfiguredStore::Test, 1016),
         ];
 
-        for (sector_class, num_bytes) in xs {
-            let storage: Box<SectorStore> = create_sector_store(sector_class);
-            let cfg = storage.sector_config();
+        for (configured_store, num_bytes) in xs {
+            let storage: Box<SectorStore> = create_sector_store(&configured_store);
+            let cfg = storage.config();
             assert_eq!(u64::from(cfg.max_unsealed_bytes_per_sector()), num_bytes);
         }
     }
 
     #[test]
     fn unsealed_sector_write_and_truncate() {
-        let storage: Box<SectorStore> = create_sector_store(SectorClass::Test);
+        let configured_store = ConfiguredStore::Test;
+        let storage: Box<SectorStore> = create_sector_store(&configured_store);
         let mgr = storage.manager();
 
         let access = mgr
@@ -288,20 +308,10 @@ pub mod tests {
         // shared amongst test cases
         let contents = &[2u8; 500];
 
-        // write contents to temp file and return mutable handle
-        let mut file = {
-            let mut file = NamedTempFile::new().expect("could not create named temp file");
-            let _ = file.write_all(contents);
-            let _ = file
-                .seek(SeekFrom::Start(0))
-                .expect("failed to seek to beginning of file");
-            file
-        };
-
         // write_and_preprocess
         {
             let n = mgr
-                .write_and_preprocess(&access, &mut file)
+                .write_and_preprocess(&access, contents)
                 .expect("failed to write");
 
             // buffer the file's bytes into memory after writing bytes
@@ -369,7 +379,9 @@ pub mod tests {
 
     #[test]
     fn deletes_staging_access() {
-        let store = create_sector_store(SectorClass::Test);
+        let configured_store = ConfiguredStore::Test;
+
+        let store = create_sector_store(&configured_store);
         let access = store.manager().new_staging_sector_access().unwrap();
 
         assert!(store

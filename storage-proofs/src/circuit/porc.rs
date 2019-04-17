@@ -1,9 +1,8 @@
 use std::marker::PhantomData;
 
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
-use ff::Field;
 use pairing::bls12_381::{Bls12, Fr};
-use pairing::Engine;
+use pairing::{Engine, Field};
 use sapling_crypto::circuit::boolean::Boolean;
 use sapling_crypto::circuit::num::{AllocatedNum, Num};
 use sapling_crypto::circuit::{boolean, num, pedersen_hash};
@@ -283,7 +282,7 @@ impl<'a, E: JubjubEngine> PoRCCircuit<'a, E> {
 mod tests {
     use super::*;
 
-    use ff::Field;
+    use pairing::Field;
     use rand::{Rng, SeedableRng, XorShiftRng};
     use sapling_crypto::jubjub::JubjubBls12;
 
@@ -293,7 +292,7 @@ mod tests {
     use crate::fr32::fr_into_bytes;
     use crate::hasher::pedersen::*;
     use crate::porc::{self, PoRC};
-    use crate::proof::{NoRequirements, ProofScheme};
+    use crate::proof::ProofScheme;
 
     #[test]
     fn test_porc_circuit_with_bls12_381() {
@@ -445,13 +444,8 @@ mod tests {
         assert!(cs.is_satisfied());
         assert!(cs.verify(&inputs));
 
-        let verified = PoRCCompound::<PedersenHasher>::verify(
-            &pub_params,
-            &pub_inputs,
-            &proof,
-            &NoRequirements,
-        )
-        .expect("failed while verifying");
+        let verified = PoRCCompound::<PedersenHasher>::verify(&pub_params, &pub_inputs, &proof)
+            .expect("failed while verifying");
 
         assert!(verified);
     }

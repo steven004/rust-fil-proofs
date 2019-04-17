@@ -1,13 +1,15 @@
-use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use pairing::{Engine, Field, PrimeField, PrimeFieldRepr};
+
+use bellman::{ConstraintSystem, Index, LinearCombination, SynthesisError, Variable};
+
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use bellman::{ConstraintSystem, Index, LinearCombination, SynthesisError, Variable};
-use blake2s_simd::State as Blake2s;
 use byteorder::{BigEndian, ByteOrder};
-use ff::{Field, PrimeField, PrimeFieldRepr};
-use pairing::Engine;
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
+
+use blake2::{Blake2s, Digest};
 
 #[derive(Debug)]
 enum NamedObject {
@@ -88,7 +90,7 @@ fn hash_lc<E: Engine>(terms: &[(Variable, E::Fr)], h: &mut Blake2s) {
 
     let mut buf = [0u8; 9 + 32];
     BigEndian::write_u64(&mut buf[0..8], map.len() as u64);
-    h.update(&buf[0..8]);
+    h.input(&buf[0..8]);
 
     for (var, coeff) in map {
         match var.0.get_unchecked() {
@@ -104,7 +106,7 @@ fn hash_lc<E: Engine>(terms: &[(Variable, E::Fr)], h: &mut Blake2s) {
 
         coeff.into_repr().write_be(&mut buf[9..]).unwrap();
 
-        h.update(&buf[..]);
+        h.input(&buf[..]);
     }
 }
 
@@ -252,7 +254,7 @@ impl<E: Engine> TestConstraintSystem<E> {
             BigEndian::write_u64(&mut buf[0..8], self.inputs.len() as u64);
             BigEndian::write_u64(&mut buf[8..16], self.aux.len() as u64);
             BigEndian::write_u64(&mut buf[16..24], self.constraints.len() as u64);
-            h.update(&buf);
+            h.input(&buf);
         }
 
         for constraint in &self.constraints {
@@ -262,7 +264,7 @@ impl<E: Engine> TestConstraintSystem<E> {
         }
 
         let mut s = String::new();
-        for b in h.finalize().as_ref() {
+        for b in h.result().as_ref() {
             s += &format!("{:02x}", b);
         }
 
@@ -449,8 +451,8 @@ impl<E: Engine> ConstraintSystem<E> for TestConstraintSystem<E> {
 
 #[test]
 fn test_cs() {
-    use ff::PrimeField;
     use pairing::bls12_381::{Bls12, Fr};
+    use pairing::PrimeField;
 
     let mut cs = TestConstraintSystem::<Bls12>::new();
     assert!(cs.is_satisfied());

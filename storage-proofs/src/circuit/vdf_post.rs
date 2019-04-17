@@ -374,7 +374,7 @@ mod tests {
     use super::*;
 
     use bellman::groth16;
-    use ff::Field;
+    use pairing::Field;
     use rand::{Rng, SeedableRng, XorShiftRng};
     use sapling_crypto::jubjub::JubjubBls12;
 
@@ -383,7 +383,7 @@ mod tests {
     use crate::drgraph::{new_seed, BucketGraph, Graph};
     use crate::fr32::fr_into_bytes;
     use crate::hasher::pedersen::*;
-    use crate::proof::{NoRequirements, ProofScheme};
+    use crate::proof::ProofScheme;
     use crate::vdf_post;
     use crate::vdf_sloth;
 
@@ -632,7 +632,7 @@ mod tests {
         //     }
         // }
 
-        let verified = VDFPostCompound::verify(&pub_params, &pub_inputs, &proof, &NoRequirements)
+        let verified = VDFPostCompound::verify(&pub_params, &pub_inputs, &proof)
             .expect("failed while verifying");
 
         assert!(verified);

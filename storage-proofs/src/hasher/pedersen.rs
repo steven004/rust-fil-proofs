@@ -1,23 +1,18 @@
 use std::hash::Hasher as StdHasher;
 
-use bellman::{ConstraintSystem, SynthesisError};
 use bitvec::{self, BitVec};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use ff::{PrimeField, PrimeFieldRepr};
 use merkle_light::hash::{Algorithm as LightAlgorithm, Hashable};
-use merkle_light::merkle::Element;
 use pairing::bls12_381::{Bls12, Fr, FrRepr};
+use pairing::{PrimeField, PrimeFieldRepr};
 use rand::{Rand, Rng};
-use sapling_crypto::circuit::{boolean, num, pedersen_hash as pedersen_hash_circuit};
-use sapling_crypto::jubjub::JubjubEngine;
 use sapling_crypto::pedersen_hash::{pedersen_hash, Personalization};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::Serializer;
 
-use crate::circuit::pedersen::pedersen_md_no_padding;
+use super::{Domain, HashFunction, Hasher};
 use crate::crypto::{kdf, pedersen, sloth};
 use crate::error::{Error, Result};
-use crate::hasher::{Domain, HashFunction, Hasher};
 
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct PedersenHasher {}
@@ -25,10 +20,6 @@ pub struct PedersenHasher {}
 impl Hasher for PedersenHasher {
     type Domain = PedersenDomain;
     type Function = PedersenFunction;
-
-    fn name() -> String {
-        "PedersenHasher".into()
-    }
 
     fn kdf(data: &[u8], m: usize) -> Self::Domain {
         kdf::kdf(data, m).into()
@@ -174,20 +165,20 @@ impl Domain for PedersenDomain {
     // QUESTION: When, if ever, should serialize and into_bytes return different results?
     // The definitions here at least are equivalent.
     fn serialize(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(PedersenDomain::byte_len());
+        let mut bytes = Vec::with_capacity(32);
         self.0.write_le(&mut bytes).unwrap();
         bytes
     }
 
     fn into_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(PedersenDomain::byte_len());
+        let mut out = Vec::with_capacity(32);
         self.0.write_le(&mut out).unwrap();
 
         out
     }
 
     fn try_from_bytes(raw: &[u8]) -> Result<Self> {
-        if raw.len() != PedersenDomain::byte_len() {
+        if raw.len() != 32 {
             return Err(Error::BadFrBytes);
         }
         let mut res: FrRepr = Default::default();
@@ -199,19 +190,6 @@ impl Domain for PedersenDomain {
     fn write_bytes(&self, dest: &mut [u8]) -> Result<()> {
         self.0.write_le(dest)?;
         Ok(())
-    }
-}
-
-impl Element for PedersenDomain {
-    fn byte_len() -> usize {
-        32
-    }
-
-    fn from_slice(bytes: &[u8]) -> Self {
-        match PedersenDomain::try_from_bytes(bytes) {
-            Ok(res) => res,
-            Err(err) => panic!(err),
-        }
     }
 }
 
@@ -230,35 +208,6 @@ impl StdHasher for PedersenFunction {
 impl HashFunction<PedersenDomain> for PedersenFunction {
     fn hash(data: &[u8]) -> PedersenDomain {
         pedersen::pedersen_md_no_padding(data).into()
-    }
-
-    fn hash_leaf_circuit<E: JubjubEngine, CS: ConstraintSystem<E>>(
-        cs: CS,
-        left: &[boolean::Boolean],
-        right: &[boolean::Boolean],
-        height: usize,
-        params: &E::Params,
-    ) -> ::std::result::Result<num::AllocatedNum<E>, SynthesisError> {
-        let mut preimage: Vec<boolean::Boolean> = vec![];
-        preimage.extend_from_slice(left);
-        preimage.extend_from_slice(right);
-
-        Ok(pedersen_hash_circuit::pedersen_hash(
-            cs,
-            Personalization::MerkleTree(height),
-            &preimage,
-            params,
-        )?
-        .get_x()
-        .clone())
-    }
-
-    fn hash_circuit<E: JubjubEngine, CS: ConstraintSystem<E>>(
-        cs: CS,
-        bits: &[boolean::Boolean],
-        params: &E::Params,
-    ) -> std::result::Result<num::AllocatedNum<E>, SynthesisError> {
-        pedersen_md_no_padding(cs, params, bits)
     }
 }
 
@@ -330,7 +279,7 @@ mod tests {
 
     use merkle_light::hash::Hashable;
 
-    use crate::merkle::{MerkleTree, VecMerkleTree};
+    use crate::merkle::MerkleTree;
 
     #[test]
     fn test_path() {
@@ -346,8 +295,7 @@ mod tests {
     fn test_pedersen_hasher() {
         let values = ["hello", "world", "you", "two"];
 
-        let t = VecMerkleTree::<PedersenDomain, PedersenFunction>::from_data(values.iter());
-        // Using `VecMerkleTree` since the `MmapStore` of `MerkleTree` doesn't support `Deref` (`as_slice`).
+        let t = MerkleTree::<PedersenDomain, PedersenFunction>::from_data(values.iter());
 
         assert_eq!(t.leafs(), 4);
 

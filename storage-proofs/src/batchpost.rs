@@ -1,17 +1,17 @@
 use std::marker::PhantomData;
 
-use blake2s_simd::blake2s;
 use byteorder::{LittleEndian, WriteBytesExt};
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use serde::de::Deserialize;
 use serde::ser::Serialize;
 
+use crate::crypto::blake2s::blake2s;
 use crate::error::Result;
 use crate::hasher::{Domain, Hasher};
 use crate::merkle::MerkleTree;
 use crate::merklepor;
-use crate::proof::{NoRequirements, ProofScheme};
+use crate::proof::ProofScheme;
 use crate::util::data_at_node;
 
 #[derive(Clone, Debug)]
@@ -71,7 +71,6 @@ impl<'a, H: 'a + Hasher> ProofScheme<'a> for BatchPoST<H> {
     type PublicInputs = PublicInputs<'a, H::Domain>;
     type PrivateInputs = PrivateInputs<'a, H>;
     type Proof = Proof<H>;
-    type Requirements = NoRequirements;
 
     fn setup(_sp: &Self::SetupParams) -> Result<Self::PublicParams> {
         // merklepor does not have a setup currently
@@ -200,7 +199,7 @@ fn derive_challenge<H: Hasher>(
     // challenge is created by interpreting the hash as a biguint in little endian
     // and then running mod leaves on it.
 
-    let big_challenge = BigUint::from_bytes_le(hash.as_ref());
+    let big_challenge = BigUint::from_bytes_le(hash.as_slice());
     let big_mod_challenge = big_challenge % leaves;
 
     Ok(big_mod_challenge

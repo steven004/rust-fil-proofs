@@ -1,7 +1,6 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
-#![allow(improper_ctypes)]
 
 extern crate ffi_toolkit;
 extern crate libc;
@@ -16,18 +15,15 @@ include!(concat!(env!("OUT_DIR"), "/libfilecoin_proofs.rs"));
 use ffi_toolkit::c_str_to_rust_str;
 use ffi_toolkit::free_c_str;
 use ffi_toolkit::rust_str_to_c_str;
-use filecoin_proofs::error::ExpectWithBacktrace;
 use rand::{thread_rng, Rng};
 use std::env;
 use std::error::Error;
-use std::io::Write;
 use std::ptr;
 use std::slice::from_raw_parts;
 use std::sync::atomic::AtomicPtr;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use tempfile::NamedTempFile;
 use tempfile::TempDir;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -52,21 +48,14 @@ unsafe fn create_and_add_piece(
     let c_piece_key = rust_str_to_c_str(piece_key.clone());
     defer!(free_c_str(c_piece_key));
 
-    // write piece bytes to a temporary file
-    let mut file = NamedTempFile::new().expects("could not create named temp file");
-    let p = file.path().to_string_lossy().to_string();
-    let _ = file.write_all(&piece_bytes);
-    let c_piece_path = rust_str_to_c_str(p);
-    defer!(free_c_str(c_piece_path));
-
     (
         piece_bytes.clone(),
         piece_key.clone(),
         add_piece(
             sector_builder,
             c_piece_key,
-            piece_bytes.len() as u64,
-            c_piece_path,
+            &piece_bytes[0],
+            piece_bytes.len(),
         ),
     )
 }
@@ -77,7 +66,7 @@ unsafe fn create_sector_builder(
     sealed_dir: &TempDir,
     prover_id: [u8; 31],
     last_committed_sector_id: u64,
-    sector_class: FFISectorClass,
+    sector_store_config: ConfiguredStore,
 ) -> (*mut SectorBuilder, usize) {
     let mut prover_id: [u8; 31] = prover_id;
 
@@ -92,7 +81,7 @@ unsafe fn create_sector_builder(
     });
 
     let resp = init_sector_builder(
-        sector_class,
+        &sector_store_config,
         last_committed_sector_id,
         c_metadata_dir,
         &mut prover_id,
@@ -106,17 +95,22 @@ unsafe fn create_sector_builder(
         panic!("{}", c_str_to_rust_str((*resp).error_msg))
     }
 
+    let resp_2 = get_max_user_bytes_per_staged_sector((*resp).sector_builder);
+    defer!(destroy_get_max_user_bytes_per_staged_sector_response(
+        resp_2
+    ));
+
     (
         (*resp).sector_builder,
-        get_max_user_bytes_per_staged_sector(sector_class.sector_size) as usize,
+        (*resp_2).max_staged_bytes_per_sector as usize,
     )
 }
 
 struct ConfigurableSizes {
-    first_piece_bytes: usize,
+    store: ConfiguredStore,
     max_bytes: usize,
+    first_piece_bytes: usize,
     second_piece_bytes: usize,
-    sector_class: FFISectorClass,
     third_piece_bytes: usize,
 }
 
@@ -127,11 +121,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
 
     let sizes = if use_live_store {
         ConfigurableSizes {
-            sector_class: FFISectorClass {
-                sector_size: FFISectorSize_SSB_TwoHundredFiftySixMiB,
-                seal_proof_partitions: FFISealProofPartitions_SPP_Two,
-                post_proof_partitions: FFIPoStProofPartitions_PPP_One,
-            },
+            store: ConfiguredStore_Live,
             max_bytes: 266338304,
             first_piece_bytes: 26214400,
             second_piece_bytes: 131072000,
@@ -139,11 +129,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
         }
     } else {
         ConfigurableSizes {
-            sector_class: FFISectorClass {
-                sector_size: FFISectorSize_SSB_OneKiB,
-                seal_proof_partitions: FFISealProofPartitions_SPP_Two,
-                post_proof_partitions: FFIPoStProofPartitions_PPP_One,
-            },
+            store: ConfiguredStore_Test,
             max_bytes: 1016,
             first_piece_bytes: 100,
             second_piece_bytes: 500,
@@ -157,7 +143,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
         &sealed_dir,
         [0; 31],
         123,
-        sizes.sector_class,
+        sizes.store,
     );
 
     // TODO: Replace the hard-coded byte amounts with values computed
@@ -251,7 +237,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
         &sealed_dir,
         [0; 31],
         123,
-        sizes.sector_class,
+        sizes.store,
     );
     defer!(destroy_sector_builder(sector_builder_b));
 
@@ -355,7 +341,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
         }
 
         let resp = verify_post(
-            sizes.sector_class.sector_size,
+            &sizes.store,
             &sealed_sector_replica_commitment[0],
             32,
             &mut challenge_seed,
@@ -363,7 +349,6 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
             (*resp).flattened_proofs_len,
             (*resp).faults_ptr,
             (*resp).faults_len,
-            SINGLE_PARTITION_PROOF_LEN as usize,
         );
         defer!(destroy_verify_post_response(resp));
 

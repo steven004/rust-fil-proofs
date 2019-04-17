@@ -58,7 +58,7 @@ fn retrieve_piece_aux<'a>(
     })?;
 
     let num_bytes_unsealed = internal::get_unsealed_range(
-        (*sector_store.inner).proofs_config().porep_config(),
+        (*sector_store.inner).config(),
         &PathBuf::from(sealed_sector.sector_access.clone()),
         &PathBuf::from(staging_sector_access),
         prover_id,

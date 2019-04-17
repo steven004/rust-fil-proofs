@@ -1,5 +1,12 @@
 #[macro_use]
 extern crate criterion;
+extern crate bellman;
+extern crate bitvec;
+extern crate pairing;
+extern crate rand;
+extern crate sapling_crypto;
+extern crate sha2;
+extern crate storage_proofs;
 
 use bellman::groth16::*;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};

@@ -1,5 +1,6 @@
 use crate::api::sector_builder::errors::SectorBuilderErr;
 use crate::api::sector_builder::SectorBuilder;
+use crate::api::API_POREP_PROOF_BYTES;
 use drop_struct_macro_derive::DropStructMacro;
 use failure::Error;
 use ffi_toolkit::free_c_str;
@@ -256,6 +257,35 @@ pub unsafe extern "C" fn destroy_seal_all_staged_sectors_response(
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+/// GetMaxStagedBytesPerSector
+//////////////////////////////
+
+#[repr(C)]
+#[derive(DropStructMacro)]
+pub struct GetMaxStagedBytesPerSector {
+    pub status_code: FCPResponseStatus,
+    pub error_msg: *const libc::c_char,
+    pub max_staged_bytes_per_sector: u64,
+}
+
+impl Default for GetMaxStagedBytesPerSector {
+    fn default() -> GetMaxStagedBytesPerSector {
+        GetMaxStagedBytesPerSector {
+            status_code: FCPResponseStatus::FCPNoError,
+            error_msg: ptr::null(),
+            max_staged_bytes_per_sector: 0,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn destroy_get_max_user_bytes_per_staged_sector_response(
+    ptr: *mut GetMaxStagedBytesPerSector,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+///////////////////////////////////////////////////////////////////////////////
 /// GetSealStatusResponse
 /////////////////////////
 
@@ -276,8 +306,7 @@ pub struct GetSealStatusResponse {
     pub comm_r_star: [u8; 32],
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
-    pub proofs_len: libc::size_t,
-    pub proofs_ptr: *const u8,
+    pub snark_proof: [u8; API_POREP_PROOF_BYTES],
     pub pieces_len: libc::size_t,
     pub pieces_ptr: *const FFIPieceMetadata,
 }
@@ -294,17 +323,19 @@ impl Default for GetSealStatusResponse {
         GetSealStatusResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
+
+            seal_status_code: FFISealStatus::Failed,
+
+            seal_error_msg: ptr::null(),
+
             comm_d: Default::default(),
             comm_r: Default::default(),
             comm_r_star: Default::default(),
             pieces_len: 0,
             pieces_ptr: ptr::null(),
-            proofs_len: 0,
-            proofs_ptr: ptr::null(),
-            seal_error_msg: ptr::null(),
-            seal_status_code: FFISealStatus::Failed,
             sector_access: ptr::null(),
             sector_id: 0,
+            snark_proof: [0; 384],
         }
     }
 }
@@ -343,12 +374,11 @@ pub struct FFISealedSectorMetadata {
     pub comm_d: [u8; 32],
     pub comm_r: [u8; 32],
     pub comm_r_star: [u8; 32],
-    pub pieces_len: libc::size_t,
-    pub pieces_ptr: *const FFIPieceMetadata,
-    pub proofs_len: libc::size_t,
-    pub proofs_ptr: *const u8,
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
+    pub snark_proof: [u8; API_POREP_PROOF_BYTES],
+    pub pieces_len: libc::size_t,
+    pub pieces_ptr: *const FFIPieceMetadata,
 }
 
 ///////////////////////////////////////////////////////////////////////////////

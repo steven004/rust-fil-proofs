@@ -1,6 +1,5 @@
 use bellman::{ConstraintSystem, Index, LinearCombination, SynthesisError, Variable};
-use ff::Field;
-use pairing::Engine;
+use pairing::{Engine, Field};
 use std::cmp::Ordering;
 
 #[derive(Clone, Copy)]

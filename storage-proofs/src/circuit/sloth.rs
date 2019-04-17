@@ -1,6 +1,5 @@
 use bellman::{ConstraintSystem, SynthesisError};
-use ff::Field;
-use pairing::Engine;
+use pairing::{Engine, Field};
 use sapling_crypto::circuit::num;
 
 use crate::circuit::constraint;

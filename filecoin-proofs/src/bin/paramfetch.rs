@@ -41,7 +41,7 @@ Defaults to '{}'
         )
         .arg(
             Arg::with_name("verbose")
-                .short("v")
+                .short("a")
                 .long("verbose")
                 .help("Print diagnostic information to stdout"),
         )

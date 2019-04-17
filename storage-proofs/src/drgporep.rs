@@ -12,7 +12,7 @@ use crate::hasher::{Domain, Hasher};
 use crate::merkle::{MerkleProof, MerkleTree};
 use crate::parameter_cache::ParameterSetIdentifier;
 use crate::porep::{self, PoRep};
-use crate::proof::{NoRequirements, ProofScheme};
+use crate::proof::ProofScheme;
 use crate::vde::{self, decode_block, decode_domain_block};
 
 #[derive(Debug, Clone)]
@@ -248,7 +248,6 @@ where
     type PublicInputs = PublicInputs<H::Domain>;
     type PrivateInputs = PrivateInputs<'a, H>;
     type Proof = Proof<H>;
-    type Requirements = NoRequirements;
 
     fn setup(sp: &Self::SetupParams) -> Result<Self::PublicParams> {
         let graph = G::new(
@@ -289,8 +288,9 @@ where
 
             let tree_d = &priv_inputs.tree_d;
             let tree_r = &priv_inputs.tree_r;
+            let domain_replica = tree_r.as_slice();
 
-            let data = tree_r.read_at(challenge);
+            let data = domain_replica[challenge];
 
             replica_nodes.push(DataProof {
                 proof: MerkleProof::new_from_proof(&tree_r.gen_proof(challenge)),
@@ -305,7 +305,7 @@ where
                     let proof = tree_r.gen_proof(*p);
                     DataProof {
                         proof: MerkleProof::new_from_proof(&proof),
-                        data: tree_r.read_at(*p),
+                        data: domain_replica[*p],
                     }
                 }));
             }
@@ -326,9 +326,8 @@ where
                 let extracted = decode_domain_block::<H>(
                     pub_params.sloth_iter,
                     &pub_inputs.replica_id.expect("missing replica_id"),
-                    tree_r.as_ref(),
+                    domain_replica,
                     challenge,
-                    tree_r.read_at(challenge),
                     &parents,
                 )?;
                 data_nodes.push(DataProof {

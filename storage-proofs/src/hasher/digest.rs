@@ -2,23 +2,17 @@ use std::fmt;
 use std::hash::Hasher as StdHasher;
 use std::marker::PhantomData;
 
-use bellman::{ConstraintSystem, SynthesisError};
-use ff::{PrimeField, PrimeFieldRepr};
 use merkle_light::hash::{Algorithm, Hashable};
-use merkle_light::merkle::Element;
 use pairing::bls12_381::{Bls12, Fr, FrRepr};
+use pairing::{PrimeField, PrimeFieldRepr};
 use rand::{Rand, Rng};
-use sapling_crypto::circuit::{boolean, num};
-use sapling_crypto::jubjub::JubjubEngine;
 use sha2::Digest;
 
 use super::{Domain, HashFunction, Hasher};
 use crate::crypto::sloth;
 use crate::error::*;
 
-pub trait Digester: Digest + Clone + Default + ::std::fmt::Debug + Send + Sync {
-    fn name() -> String;
-}
+pub trait Digester: Digest + Clone + Default + ::std::fmt::Debug + Send + Sync {}
 
 #[derive(Default, Copy, Clone, Debug)]
 pub struct DigestHasher<D: Digester> {
@@ -36,10 +30,6 @@ impl<D: Digester> Eq for DigestHasher<D> {}
 impl<D: Digester> Hasher for DigestHasher<D> {
     type Domain = DigestDomain;
     type Function = DigestFunction<D>;
-
-    fn name() -> String {
-        format!("DigestHasher<{}>", D::name())
-    }
 
     fn kdf(data: &[u8], m: usize) -> Self::Domain {
         assert_eq!(
@@ -162,33 +152,20 @@ impl Domain for DigestDomain {
     }
 
     fn try_from_bytes(raw: &[u8]) -> Result<Self> {
-        if raw.len() != DigestDomain::byte_len() {
+        if raw.len() != 32 {
             return Err(Error::InvalidInputSize);
         }
         let mut res = DigestDomain::default();
-        res.0.copy_from_slice(&raw[0..DigestDomain::byte_len()]);
+        res.0.copy_from_slice(&raw[0..32]);
         Ok(res)
     }
 
     fn write_bytes(&self, dest: &mut [u8]) -> Result<()> {
-        if dest.len() < DigestDomain::byte_len() {
+        if dest.len() < 32 {
             return Err(Error::InvalidInputSize);
         }
-        dest[0..DigestDomain::byte_len()].copy_from_slice(&self.0[..]);
+        dest[0..32].copy_from_slice(&self.0[..]);
         Ok(())
-    }
-}
-
-impl Element for DigestDomain {
-    fn byte_len() -> usize {
-        32
-    }
-
-    fn from_slice(bytes: &[u8]) -> Self {
-        match DigestDomain::try_from_bytes(bytes) {
-            Ok(res) => res,
-            Err(err) => panic!(err),
-        }
     }
 }
 
@@ -199,22 +176,6 @@ impl<D: Digester> HashFunction<DigestDomain> for DigestFunction<D> {
         res.0.copy_from_slice(&hashed[..]);
         res.trim_to_fr32();
         res
-    }
-    fn hash_leaf_circuit<E: JubjubEngine, CS: ConstraintSystem<E>>(
-        _cs: CS,
-        _left: &[boolean::Boolean],
-        _right: &[boolean::Boolean],
-        _height: usize,
-        _params: &E::Params,
-    ) -> std::result::Result<num::AllocatedNum<E>, SynthesisError> {
-        unimplemented!("circuit leaf hash");
-    }
-    fn hash_circuit<E: JubjubEngine, CS: ConstraintSystem<E>>(
-        _cs: CS,
-        _bits: &[boolean::Boolean],
-        _params: &E::Params,
-    ) -> std::result::Result<num::AllocatedNum<E>, SynthesisError> {
-        unimplemented!("circuit hash");
     }
 }
 

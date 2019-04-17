@@ -2,45 +2,45 @@ use crate::api::internal::ChallengeSeed;
 use crate::api::internal::Commitment;
 use crate::api::internal::POST_SECTORS_COUNT;
 use crate::error;
-use sector_base::api::post_config::PoStConfig;
+use sector_base::api::bytes_amount::PaddedBytesAmount;
 use std::iter::repeat;
 use std::iter::repeat_with;
 
 pub struct GeneratePoStDynamicSectorsCountInput {
-    pub post_config: PoStConfig,
+    pub sector_bytes: PaddedBytesAmount,
     pub challenge_seed: ChallengeSeed,
     pub input_parts: Vec<(Option<String>, Commitment)>,
 }
 
 pub struct GeneratePoStFixedSectorsCountInput {
-    pub post_config: PoStConfig,
+    pub sector_bytes: PaddedBytesAmount,
     pub challenge_seed: ChallengeSeed,
     pub input_parts: [(Option<String>, Commitment); POST_SECTORS_COUNT],
 }
 
 pub struct VerifyPoStDynamicSectorsCountInput {
-    pub post_config: PoStConfig,
+    pub sector_bytes: PaddedBytesAmount,
     pub comm_rs: Vec<Commitment>,
     pub challenge_seed: ChallengeSeed,
-    pub proofs: Vec<Vec<u8>>,
+    pub proofs: Vec<[u8; 192]>,
     pub faults: Vec<u64>,
 }
 
 pub struct VerifyPoStFixedSectorsCountInput {
-    pub post_config: PoStConfig,
+    pub sector_bytes: PaddedBytesAmount,
     pub comm_rs: [Commitment; POST_SECTORS_COUNT],
     pub challenge_seed: ChallengeSeed,
-    pub proof: Vec<u8>,
+    pub proof: [u8; 192],
     pub faults: Vec<u64>,
 }
 
 pub struct GeneratePoStDynamicSectorsCountOutput {
-    pub proofs: Vec<Vec<u8>>,
+    pub proofs: Vec<[u8; 192]>,
     pub faults: Vec<u64>,
 }
 
 pub struct GeneratePoStFixedSectorsCountOutput {
-    pub proof: Vec<u8>,
+    pub proof: [u8; 192],
     pub faults: Vec<u64>,
 }
 
@@ -73,7 +73,7 @@ pub fn generate_post_spread_input(
         }
 
         fixed.push(GeneratePoStFixedSectorsCountInput {
-            post_config: dynamic.post_config,
+            sector_bytes: dynamic.sector_bytes,
             challenge_seed: dynamic.challenge_seed,
             input_parts,
         });
@@ -98,7 +98,7 @@ pub fn generate_post_spread_input(
         }
 
         fixed.push(GeneratePoStFixedSectorsCountInput {
-            post_config: dynamic.post_config,
+            sector_bytes: dynamic.sector_bytes,
             challenge_seed: dynamic.challenge_seed,
             input_parts,
         });
@@ -155,7 +155,7 @@ pub fn verify_post_spread_input(
 ) -> error::Result<Vec<VerifyPoStFixedSectorsCountInput>> {
     let faults_len = dynamic.faults.len();
     let commrs_len = dynamic.comm_rs.len();
-    let proofs_len = { dynamic.proofs.len() };
+    let proofs_len = dynamic.proofs.len();
     let replicas_c = (commrs_len as f64 / POST_SECTORS_COUNT as f64).ceil() as usize;
     let faults_max = dynamic.faults.iter().max();
 
@@ -201,10 +201,10 @@ pub fn verify_post_spread_input(
         }
 
         fixed.push(VerifyPoStFixedSectorsCountInput {
-            post_config: dynamic.post_config,
+            sector_bytes: dynamic.sector_bytes,
             comm_rs,
             challenge_seed: dynamic.challenge_seed,
-            proof: dynamic.proofs[i].clone(),
+            proof: dynamic.proofs[i],
             faults: Vec::new(),
         })
     }
@@ -228,10 +228,10 @@ pub fn verify_post_spread_input(
         }
 
         fixed.push(VerifyPoStFixedSectorsCountInput {
-            post_config: dynamic.post_config,
+            sector_bytes: dynamic.sector_bytes,
             comm_rs,
             challenge_seed: dynamic.challenge_seed,
-            proof: dynamic.proofs[proofs_len - 1].to_vec(),
+            proof: dynamic.proofs[proofs_len - 1],
             faults: Vec::new(),
         })
     }
@@ -347,19 +347,19 @@ mod tests {
     #[test]
     fn test_generate_post_dynamic_to_fixed_input() {
         let dynamic_a = GeneratePoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             challenge_seed: [0; 32],
             input_parts: vec![],
         };
 
         let dynamic_b = GeneratePoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             challenge_seed: [0; 32],
             input_parts: vec![(Some("a".to_string()), [0; 32])],
         };
 
         let dynamic_c = GeneratePoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             challenge_seed: [0; 32],
             input_parts: vec![
                 (Some("a".to_string()), [0; 32]),
@@ -368,7 +368,7 @@ mod tests {
         };
 
         let dynamic_d = GeneratePoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             challenge_seed: [0; 32],
             input_parts: vec![
                 (Some("a".to_string()), [0; 32]),
@@ -403,8 +403,8 @@ mod tests {
 
     #[test]
     fn test_verify_post_dynamic_to_fixed_input() {
-        let proof_a = [0; 192].to_vec();
-        let proof_b = [1; 192].to_vec();
+        let proof_a = [0; 192];
+        let proof_b = [1; 192];
 
         let comm_r_a = [0; 32];
         let comm_r_b = [1; 32];
@@ -412,7 +412,7 @@ mod tests {
         let comm_r_d = [3; 32];
 
         let dynamic_a = VerifyPoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             comm_rs: Vec::new(),
             challenge_seed: [0; 32],
             proofs: Vec::new(),
@@ -420,7 +420,7 @@ mod tests {
         };
 
         let dynamic_b = VerifyPoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             comm_rs: vec![comm_r_a.clone()],
             challenge_seed: [0; 32],
             proofs: vec![proof_a.clone()],
@@ -428,7 +428,7 @@ mod tests {
         };
 
         let dynamic_c = VerifyPoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             comm_rs: vec![comm_r_a.clone(), comm_r_b.clone()],
             challenge_seed: [0; 32],
             proofs: vec![proof_a.clone()],
@@ -436,7 +436,7 @@ mod tests {
         };
 
         let dynamic_d = VerifyPoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             comm_rs: vec![comm_r_a.clone(), comm_r_b.clone(), comm_r_c.clone()],
             challenge_seed: [0; 32],
             proofs: vec![proof_a.clone(), proof_b.clone()],
@@ -473,7 +473,7 @@ mod tests {
         assert_eq!(
             true,
             verify_post_spread_input(VerifyPoStDynamicSectorsCountInput {
-                post_config: PoStConfig::Test,
+                sector_bytes: PaddedBytesAmount(1),
                 comm_rs: vec![comm_r_a.clone()],
                 challenge_seed: [0; 32],
                 proofs: vec![proof_a.clone(), proof_b.clone()],
@@ -486,7 +486,7 @@ mod tests {
         assert_eq!(
             true,
             verify_post_spread_input(VerifyPoStDynamicSectorsCountInput {
-                post_config: PoStConfig::Test,
+                sector_bytes: PaddedBytesAmount(1),
                 comm_rs: vec![comm_r_a.clone()],
                 challenge_seed: [0; 32],
                 proofs: vec![],
@@ -499,7 +499,7 @@ mod tests {
         assert_eq!(
             true,
             verify_post_spread_input(VerifyPoStDynamicSectorsCountInput {
-                post_config: PoStConfig::Test,
+                sector_bytes: PaddedBytesAmount(1),
                 comm_rs: vec![comm_r_a.clone()],
                 challenge_seed: [0; 32],
                 proofs: vec![proof_a.clone()],
@@ -512,7 +512,7 @@ mod tests {
         assert_eq!(
             true,
             verify_post_spread_input(VerifyPoStDynamicSectorsCountInput {
-                post_config: PoStConfig::Test,
+                sector_bytes: PaddedBytesAmount(1),
                 comm_rs: vec![comm_r_a.clone()],
                 challenge_seed: [0; 32],
                 proofs: vec![proof_a.clone()],
@@ -523,7 +523,7 @@ mod tests {
 
         // map dynamic sectors count indices to fixed count fault indices
         let fixed_e = verify_post_spread_input(VerifyPoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             comm_rs: vec![
                 comm_r_a.clone(),
                 comm_r_b.clone(),
@@ -540,7 +540,7 @@ mod tests {
 
         // ensure fault-values map to appropriate, duplicated comm_r
         let fixed_f = verify_post_spread_input(VerifyPoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             comm_rs: vec![comm_r_a.clone()],
             challenge_seed: [0; 32],
             proofs: vec![proof_a.clone()],
@@ -555,7 +555,7 @@ mod tests {
         // explanation: faults=[3] corresponds to faults=[1] in the second fixed
         // count pair and faults=[] in the first
         let fixed_g = verify_post_spread_input(VerifyPoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             comm_rs: vec![
                 comm_r_a.clone(),
                 comm_r_b.clone(),
@@ -576,7 +576,7 @@ mod tests {
         // and faults[0, 1] in the second (because the third commitment was
         // duplicated
         let fixed_h = verify_post_spread_input(VerifyPoStDynamicSectorsCountInput {
-            post_config: PoStConfig::Test,
+            sector_bytes: PaddedBytesAmount(1),
             comm_rs: vec![comm_r_a.clone(), comm_r_b.clone(), comm_r_c.clone()],
             challenge_seed: [0; 32],
             proofs: vec![proof_a.clone(), proof_b.clone()],
@@ -593,23 +593,23 @@ mod tests {
     #[test]
     fn test_generate_post_fixed_to_dynamic_output() {
         let fixed_a = GeneratePoStFixedSectorsCountOutput {
-            proof: [0; 192].to_vec(),
+            proof: [0; 192],
             faults: vec![0, 1],
         };
         let fixed_b = GeneratePoStFixedSectorsCountOutput {
-            proof: [0; 192].to_vec(),
+            proof: [0; 192],
             faults: vec![0, 1],
         };
         let fixed_c = GeneratePoStFixedSectorsCountOutput {
-            proof: [1; 192].to_vec(),
+            proof: [1; 192],
             faults: vec![],
         };
         let fixed_d = GeneratePoStFixedSectorsCountOutput {
-            proof: [2; 192].to_vec(),
+            proof: [2; 192],
             faults: vec![1],
         };
         let fixed_e = GeneratePoStFixedSectorsCountOutput {
-            proof: [2; 192].to_vec(),
+            proof: [2; 192],
             faults: vec![0, 1],
         };
 

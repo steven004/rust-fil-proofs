@@ -1,14 +1,9 @@
-use bellman::{ConstraintSystem, SynthesisError};
+use crate::error::Result;
 use merkle_light::hash::{Algorithm as LightAlgorithm, Hashable as LightHashable};
-use merkle_light::merkle::Element;
 use pairing::bls12_381::{Fr, FrRepr};
 use rand::Rand;
-use sapling_crypto::circuit::{boolean, num};
-use sapling_crypto::jubjub::JubjubEngine;
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
-
-use crate::error::Result;
 
 pub trait Domain:
     Ord
@@ -26,7 +21,6 @@ pub trait Domain:
     + Rand
     + Serialize
     + DeserializeOwned
-    + Element
 {
     fn serialize(&self) -> Vec<u8>;
     fn into_bytes(&self) -> Vec<u8>;
@@ -52,20 +46,6 @@ pub trait HashFunction<T: Domain>:
         data.hash(&mut a);
         a.hash()
     }
-
-    fn hash_leaf_circuit<E: JubjubEngine, CS: ConstraintSystem<E>>(
-        cs: CS,
-        left: &[boolean::Boolean],
-        right: &[boolean::Boolean],
-        height: usize,
-        params: &E::Params,
-    ) -> std::result::Result<num::AllocatedNum<E>, SynthesisError>;
-
-    fn hash_circuit<E: JubjubEngine, CS: ConstraintSystem<E>>(
-        cs: CS,
-        bits: &[boolean::Boolean],
-        params: &E::Params,
-    ) -> std::result::Result<num::AllocatedNum<E>, SynthesisError>;
 }
 
 pub trait Hasher: Clone + ::std::fmt::Debug + Eq + Default + Send + Sync {
@@ -75,6 +55,4 @@ pub trait Hasher: Clone + ::std::fmt::Debug + Eq + Default + Send + Sync {
     fn kdf(data: &[u8], m: usize) -> Self::Domain;
     fn sloth_encode(key: &Self::Domain, ciphertext: &Self::Domain, rounds: usize) -> Self::Domain;
     fn sloth_decode(key: &Self::Domain, ciphertext: &Self::Domain, rounds: usize) -> Self::Domain;
-
-    fn name() -> String;
 }

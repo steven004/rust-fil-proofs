@@ -2,7 +2,6 @@ mod constraint;
 
 pub mod por;
 
-pub mod apex_commitment;
 pub mod beacon_post;
 pub mod drgporep;
 pub mod kdf;

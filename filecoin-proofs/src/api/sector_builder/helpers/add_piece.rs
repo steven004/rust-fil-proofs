@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::sync::Arc;
 
 use crate::api::sector_builder::errors::*;
@@ -14,16 +13,12 @@ pub fn add_piece(
     sector_store: &Arc<WrappedSectorStore>,
     mut staged_state: &mut StagedState,
     piece_key: String,
-    piece_bytes_amount: u64,
-    piece_path: String,
+    piece_bytes: &[u8],
 ) -> error::Result<SectorId> {
     let sector_mgr = sector_store.inner.manager();
-    let sector_max = sector_store
-        .inner
-        .sector_config()
-        .max_unsealed_bytes_per_sector();
+    let sector_max = sector_store.inner.config().max_unsealed_bytes_per_sector();
 
-    let piece_bytes_len = UnpaddedBytesAmount(piece_bytes_amount);
+    let piece_bytes_len = UnpaddedBytesAmount(piece_bytes.len() as u64);
 
     let opt_dest_sector_id = {
         let candidates: Vec<StagedSectorMetadata> = staged_state
@@ -41,12 +36,10 @@ pub fn add_piece(
         .or_else(|_| provision_new_staged_sector(sector_mgr, &mut staged_state))?;
 
     if let Some(s) = staged_state.sectors.get_mut(&dest_sector_id) {
-        let mut file = File::open(piece_path)?;
-
         sector_store
             .inner
             .manager()
-            .write_and_preprocess(&s.sector_access, &mut file)
+            .write_and_preprocess(&s.sector_access, &piece_bytes)
             .map_err(Into::into)
             .and_then(|num_bytes_written| {
                 if num_bytes_written != piece_bytes_len {

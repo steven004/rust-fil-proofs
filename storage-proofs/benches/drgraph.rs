@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate criterion;
+extern crate storage_proofs;
 
 use criterion::{black_box, Criterion, ParameterizedBenchmark};
 use storage_proofs::drgraph::*;

@@ -3,10 +3,9 @@ use std::marker::PhantomData;
 
 use bitvec::{self, BitVec};
 use byteorder::{ByteOrder, LittleEndian};
-use ff::{Field, PrimeField, ScalarEngine};
 use itertools::Itertools;
 use pairing::bls12_381::{Bls12, Fr, FrRepr};
-use pairing::Engine;
+use pairing::{Engine, Field, PrimeField};
 use serde::de::Deserialize;
 use serde::ser::Serialize;
 
@@ -16,7 +15,7 @@ use crate::hasher::{Domain, HashFunction, Hasher};
 use crate::merkle::MerkleTree;
 use crate::parameter_cache::ParameterSetIdentifier;
 use crate::porc::{self, PoRC};
-use crate::proof::{NoRequirements, ProofScheme};
+use crate::proof::ProofScheme;
 use crate::vdf::Vdf;
 
 #[derive(Clone, Debug)]
@@ -131,7 +130,6 @@ impl<'a, H: Hasher + 'a, V: Vdf<H::Domain>> ProofScheme<'a> for VDFPoSt<H, V> {
     type PublicInputs = PublicInputs<H::Domain>;
     type PrivateInputs = PrivateInputs<'a, H>;
     type Proof = Proof<'a, H, V>;
-    type Requirements = NoRequirements;
 
     fn setup(sp: &Self::SetupParams) -> Result<Self::PublicParams> {
         // Sector sizes which are powers of two have the form 100000 (i.e. leading one and all zeroes after).
@@ -435,7 +433,7 @@ fn derive_final_challenges<H: Hasher, E: Engine>(
     challenge_bits: usize,
 ) -> (Vec<usize>, Vec<usize>)
 where
-    <E as ScalarEngine>::Fr: std::convert::From<pairing::bls12_381::Fr>,
+    <E as Engine>::Fr: std::convert::From<pairing::bls12_381::Fr>,
 {
     type BV = BitVec<bitvec::LittleEndian, u8>;
 

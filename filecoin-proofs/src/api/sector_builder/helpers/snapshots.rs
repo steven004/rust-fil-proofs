@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
-use crate::api::sector_builder::kv_store::KeyValueStore;
 use crate::api::sector_builder::state::*;
 use crate::api::sector_builder::WrappedKeyValueStore;
 use crate::error::Result;
+use std::sync::Arc;
 
-pub fn load_snapshot<T: KeyValueStore>(
-    kv_store: &Arc<WrappedKeyValueStore<T>>,
+pub fn load_snapshot(
+    kv_store: &Arc<WrappedKeyValueStore>,
     prover_id: &[u8; 31],
 ) -> Result<Option<StateSnapshot>> {
     let result: Option<Vec<u8>> = kv_store.inner.get(prover_id)?;
@@ -20,8 +18,8 @@ pub fn load_snapshot<T: KeyValueStore>(
     Ok(None)
 }
 
-pub fn persist_snapshot<T: KeyValueStore>(
-    kv_store: &Arc<WrappedKeyValueStore<T>>,
+pub fn persist_snapshot(
+    kv_store: &Arc<WrappedKeyValueStore>,
     snapshot: &StateSnapshot,
 ) -> Result<()> {
     let serialized = serde_cbor::to_vec(snapshot)?;
@@ -49,7 +47,7 @@ pub fn make_snapshot(
 #[cfg(test)]
 mod tests {
     use crate::api::sector_builder::helpers::snapshots::*;
-    use crate::api::sector_builder::kv_store::RocksKvs;
+    use crate::api::sector_builder::kv_store::fs::FileSystemKvs;
     use crate::api::sector_builder::metadata::StagedSectorMetadata;
     use crate::api::sector_builder::state::SealedState;
     use crate::api::sector_builder::state::StagedState;
@@ -64,7 +62,7 @@ mod tests {
         let metadata_dir = tempfile::tempdir().unwrap();
 
         let kv_store = Arc::new(WrappedKeyValueStore {
-            inner: Box::new(RocksKvs::initialize(metadata_dir).unwrap()),
+            inner: Box::new(FileSystemKvs::initialize(metadata_dir).unwrap()),
         });
 
         let prover_id = [0; 31];
