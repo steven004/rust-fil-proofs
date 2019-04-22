@@ -1,13 +1,14 @@
 use libc;
 use std::fs::{create_dir_all, remove_file, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::api::bytes_amount::{PaddedBytesAmount, UnpaddedBytesAmount};
 use crate::api::errors::SectorManagerErr;
 use crate::api::sector_store::SectorConfig;
 use crate::api::sector_store::SectorManager;
 use crate::api::sector_store::SectorStore;
+use crate::api::sector_builder::SectorId;
 use crate::api::util;
 use crate::io::fr32::almost_truncate_to_unpadded_bytes;
 use crate::io::fr32::target_unpadded_bytes;
@@ -83,12 +84,12 @@ pub struct DiskManager {
 }
 
 impl SectorManager for DiskManager {
-    fn new_sealed_sector_access(&self) -> Result<String, SectorManagerErr> {
-        self.new_sector_access(Path::new(&self.sealed_path))
+    fn new_sealed_sector_access(&self, sector_id: SectorId) -> Result<String, SectorManagerErr> {
+        self.new_sector_access(Path::new(&self.sealed_path), sector_id)
     }
 
-    fn new_staging_sector_access(&self) -> Result<String, SectorManagerErr> {
-        self.new_sector_access(Path::new(&self.staging_path))
+    fn new_staging_sector_access(&self, sector_id: SectorId) -> Result<String, SectorManagerErr> {
+        self.new_sector_access(Path::new(&self.staging_path), sector_id)
     }
 
     fn num_unsealed_bytes(&self, access: &str) -> Result<u64, SectorManagerErr> {
@@ -164,8 +165,21 @@ impl SectorManager for DiskManager {
 }
 
 impl DiskManager {
-    fn new_sector_access(&self, root: &Path) -> Result<String, SectorManagerErr> {
-        let pbuf = root.join(util::rand_alpha_string(32));
+    fn new_sector_access(&self, root &Path, sector_id: SectorId) -> Result<String, SectorManagerErr> {
+        // Comment this one to create a determined filename. 
+        // let pbuf = root.join(util::rand_alpha_string(32));
+        
+        // Create a determined file name related to the sector_id
+        let mut bs = [0u8; mem::size_of::<SectorId>()];
+        bs.as_mut()
+            .write_u64::<BigEndian>(sector_id)
+            .map_err(|err| SectorManagerErr::ReceiverError(format!("{:?}", err)))?;
+        
+        let filename = str::from_utf8(&bs)
+            .map_err(|err| SectorManagerErr::ReceiverError(format!("{:?}", err)))
+            .unwarp()?;
+
+        let pbuf = root.join(filename);
 
         create_dir_all(root)
             .map_err(|err| SectorManagerErr::ReceiverError(format!("{:?}", err)))
@@ -302,7 +316,7 @@ pub mod tests {
         let mgr = storage.manager();
 
         let access = mgr
-            .new_staging_sector_access()
+            .new_staging_sector_access(18446744073709551615_u64)
             .expect("failed to create staging file");
 
         // shared amongst test cases
@@ -382,7 +396,7 @@ pub mod tests {
         let configured_store = ConfiguredStore::Test;
 
         let store = create_sector_store(&configured_store);
-        let access = store.manager().new_staging_sector_access().unwrap();
+        let access = store.manager().new_staging_sector_access(18446744073709551615_u64).unwrap();
 
         assert!(store
             .manager()

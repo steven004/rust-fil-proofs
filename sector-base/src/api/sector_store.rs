@@ -1,5 +1,6 @@
 use crate::api::bytes_amount::{PaddedBytesAmount, UnpaddedBytesAmount};
 use crate::api::errors::SectorManagerErr;
+use crate::api::sector_builder::SectorId;
 
 pub trait SectorConfig {
     /// returns the number of user-provided bytes that will fit into a sector managed by this store
@@ -10,11 +11,11 @@ pub trait SectorConfig {
 }
 
 pub trait SectorManager {
-    /// provisions a new sealed sector and reports the corresponding access
-    fn new_sealed_sector_access(&self) -> Result<String, SectorManagerErr>;
+    /// provisions a new sealed sector with the sector_id and reports the corresponding access
+    fn new_sealed_sector_access(&self, sector_id: SectorId) -> Result<String, SectorManagerErr>;
 
     /// provisions a new staging sector and reports the corresponding access
-    fn new_staging_sector_access(&self) -> Result<String, SectorManagerErr>;
+    fn new_staging_sector_access(&self, sector_id: SectorId) -> Result<String, SectorManagerErr>;
 
     /// reports the number of bytes written to an unsealed sector
     fn num_unsealed_bytes(&self, access: &str) -> Result<u64, SectorManagerErr>;

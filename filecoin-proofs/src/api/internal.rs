@@ -700,20 +700,20 @@ mod tests {
         let cfg = store.config();
         let max: u64 = store.config().max_unsealed_bytes_per_sector().into();
 
+        let prover_id = [2; 31];
+        let sector_id = 18446744073709551615_u64;
+
         let staged_access = mgr
-            .new_staging_sector_access()
+            .new_staging_sector_access(sector_id)
             .expect("could not create staging access");
 
         let sealed_access = mgr
-            .new_sealed_sector_access()
+            .new_sealed_sector_access(sector_id)
             .expect("could not create sealed access");
 
         let unseal_access = mgr
-            .new_sealed_sector_access()
+            .new_sealed_sector_access(sector_id)
             .expect("could not create unseal access");
-
-        let prover_id = [2; 31];
-        let sector_id = [0; 31];
 
         let mut written_contents: Vec<Vec<u8>> = Default::default();
         for bytes_amt in bytes_amts {
@@ -991,7 +991,7 @@ mod tests {
         let unseal_access = h
             .store
             .manager()
-            .new_sealed_sector_access()
+            .new_sealed_sector_access(18446744073709551615_u64)
             .expect("could not create unseal access");
 
         let _ = get_unsealed_range(

@@ -19,7 +19,7 @@ pub fn retrieve_piece<'a>(
     let staging_sector_access = sector_store
         .inner
         .manager()
-        .new_staging_sector_access()
+        .new_staging_sector_access(sealed_sector.sector_id)
         .map_err(failure::Error::from)?;
 
     let result = retrieve_piece_aux(
