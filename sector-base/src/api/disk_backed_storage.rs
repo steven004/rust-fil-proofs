@@ -8,13 +8,13 @@ use crate::api::errors::SectorManagerErr;
 use crate::api::sector_store::SectorConfig;
 use crate::api::sector_store::SectorManager;
 use crate::api::sector_store::SectorStore;
-use crate::api::sector_builder::SectorId;
 use crate::api::util;
 use crate::io::fr32::almost_truncate_to_unpadded_bytes;
 use crate::io::fr32::target_unpadded_bytes;
 use crate::io::fr32::unpadded_bytes;
 use crate::io::fr32::write_padded;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
+use crate::super::filecoin-proofs::sector_builder::api::sector_builder::SectorId;
 
 // These sizes are for SEALED sectors. They are used to calculate the values of setup parameters.
 // They can be overridden by setting the corresponding environment variable (with FILECOIN_PROOFS_ prefix),
@@ -165,7 +165,7 @@ impl SectorManager for DiskManager {
 }
 
 impl DiskManager {
-    fn new_sector_access(&self, root &Path, sector_id: SectorId) -> Result<String, SectorManagerErr> {
+    fn new_sector_access(&self, root: &Path, sector_id: SectorId) -> Result<String, SectorManagerErr> {
         // Comment this one to create a determined filename. 
         // let pbuf = root.join(util::rand_alpha_string(32));
         
