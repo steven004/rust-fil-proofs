@@ -1,6 +1,9 @@
+extern crate filecoin_proofs;
+
 use crate::api::bytes_amount::{PaddedBytesAmount, UnpaddedBytesAmount};
 use crate::api::errors::SectorManagerErr;
-use crate::super::filecoin-proofs::sector_builder::api::sector_builder::SectorId;
+use crate::super::filecoin-proofs::api::sector_builder::SectorId;
+use filecoin-proofs::api::sector_builder::SectorId;
 
 pub trait SectorConfig {
     /// returns the number of user-provided bytes that will fit into a sector managed by this store
