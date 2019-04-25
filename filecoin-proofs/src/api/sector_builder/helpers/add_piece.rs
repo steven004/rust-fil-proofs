@@ -96,7 +96,6 @@ fn compute_destination_sector_id(
 fn provision_new_staged_sector(
     sector_manager: &SectorManager,
     staged_state: &mut StagedState,
-    piece_key: String,
 ) -> error::Result<SectorId> {
     // // Do not use the original increamental sector_id
     // let sector_id = {
@@ -136,8 +135,8 @@ fn provision_new_staged_sector(
 }
 
 // Get a determined sector_id from a cid
-fn get_sectorid_from_cid(cid: String) -> Result<SectorId> {
-    let cid_b = piece_key.as_bytes();
+fn get_sectorid_from_cid(cid: String) -> error::Result<SectorId> {
+    let cid_b = cid.as_bytes();
     let l = cid_b.len();
     if l < 8 {
         return Err("The length of ths tring is less than 8");
