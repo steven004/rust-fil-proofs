@@ -21,7 +21,7 @@ pub fn add_piece(
 
     let piece_bytes_len = UnpaddedBytesAmount(piece_bytes.len() as u64);
 
-    staged_state.sector_id_nonce = get_sectorid_from_cid(piece_key)?;
+    staged_state.sector_id_nonce = get_sectorid_from_cid(&piece_key)?;
 
     // TO DO: just use a new access for a new piece of data. 
     let opt_dest_sector_id = {
@@ -48,7 +48,7 @@ pub fn add_piece(
             .manager()
             .write_and_preprocess(&s.sector_access, &piece_bytes)
             .map_err(Into::into)
-            .and_then(|num_bytes_written| {
+            .and_then(|num_bytes_written| { 
                 if num_bytes_written != piece_bytes_len {
                     Err(
                         err_inc_write(u64::from(num_bytes_written), u64::from(piece_bytes_len))
@@ -60,7 +60,7 @@ pub fn add_piece(
             })
             .map(|sector_id| {
                 s.pieces.push(metadata::PieceMetadata {
-                    piece_key,
+                    piece_key, 
                     num_bytes: piece_bytes_len,
                 });
 
@@ -135,11 +135,12 @@ fn provision_new_staged_sector(
 }
 
 // Get a determined sector_id from a cid
-fn get_sectorid_from_cid(cid: String) -> error::Result<SectorId> {
+fn get_sectorid_from_cid(cid: &str) -> error::Result<SectorId> { //? String
     let cid_b = cid.as_bytes();
     let l = cid_b.len();
     if l < 8 {
-        return Err("The length of ths tring is less than 8");
+        return Err(format_err!("The length of ths tring is less than 8")); //?
+        // return Err("The length of ths tring is less than 8");
     }
 
     // println!("cid = { }", cid);   

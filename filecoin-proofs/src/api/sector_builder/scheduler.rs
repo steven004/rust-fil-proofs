@@ -239,7 +239,7 @@ impl SectorMetadataManager {
     // piece-bytes are now associated.
     pub fn add_piece(&mut self, piece_key: String, piece_bytes: &[u8]) -> Result<u64> {
         let destination_sector_id = add_piece(
-            &self.sector_store,
+            &self.sector_store, 
             &mut self.state.staged,
             piece_key,
             piece_bytes,

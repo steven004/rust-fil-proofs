@@ -31,7 +31,7 @@ pub struct SealedSectorMetadata {
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct PieceMetadata {
-    pub piece_key: String,
+    pub piece_key: String, 
     pub num_bytes: UnpaddedBytesAmount,
 }
 

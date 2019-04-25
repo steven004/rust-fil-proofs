@@ -209,7 +209,7 @@ impl Drop for SectorBuilder {
 }
 
 pub struct WrappedSectorStore {
-    inner: Box<SectorStore>,
+    inner: Box<SectorStore>, 
 }
 
 unsafe impl Sync for WrappedSectorStore {}
