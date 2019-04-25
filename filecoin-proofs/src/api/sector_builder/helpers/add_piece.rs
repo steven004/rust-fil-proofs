@@ -21,23 +21,26 @@ pub fn add_piece(
 
     let piece_bytes_len = UnpaddedBytesAmount(piece_bytes.len() as u64);
 
-    // let opt_dest_sector_id = {
-    //     let candidates: Vec<StagedSectorMetadata> = staged_state
-    //         .sectors
-    //         .iter()
-    //         .filter(|(_, v)| v.seal_status == SealStatus::Pending)
-    //         .map(|(_, v)| (*v).clone())
-    //         .collect();
+    staged_state.sector_id_nonce = get_sectorid_from_cid(piece_key)?;
 
-    //     compute_destination_sector_id(&candidates[..], sector_max, piece_bytes_len)?
-    // };
+    // TO DO: just use a new access for a new piece of data. 
+    let opt_dest_sector_id = {
+        let candidates: Vec<StagedSectorMetadata> = staged_state
+            .sectors
+            .iter()
+            .filter(|(_, v)| v.seal_status == SealStatus::Pending)
+            .map(|(_, v)| (*v).clone())
+            .collect();
 
-    // let dest_sector_id = opt_dest_sector_id
-    //     .ok_or(())
-    //     .or_else(|_| provision_new_staged_sector(sector_mgr, &mut staged_state))?;
+        compute_destination_sector_id(&candidates[..], sector_max, piece_bytes_len)?
+    };
+
+    let dest_sector_id = opt_dest_sector_id
+        .ok_or(())
+        .or_else(|_| provision_new_staged_sector(sector_mgr, &mut staged_state))?;
 
     // To use determined sector_id based on the piece_key, and already create a new sector
-    let dest_sector_id = provision_new_staged_sector(sector_mgr, &mut staged_state), piece_key)?;
+    // let dest_sector_id = provision_new_staged_sector(sector_mgr, &mut staged_state), piece_key)?;
 
     if let Some(s) = staged_state.sectors.get_mut(&dest_sector_id) {
         sector_store
@@ -93,7 +96,7 @@ fn compute_destination_sector_id(
 fn provision_new_staged_sector(
     sector_manager: &SectorManager,
     staged_state: &mut StagedState,
-    piece_key: String
+    piece_key: String,
 ) -> error::Result<SectorId> {
     // // Do not use the original increamental sector_id
     // let sector_id = {
@@ -103,6 +106,37 @@ fn provision_new_staged_sector(
     // };
 
     // To use a determined sector_id
+    // let cid_b = piece_key.as_bytes();
+    // let l = cid_b.len();
+    // if l < 8 {
+    //     return Err("The length of ths tring is less than 8");
+    // }
+
+    // // println!("cid = { }", cid);   
+    // let mut sector_id:SectorId = 0;
+    // for i in l-8..l {
+    //     sector_id <<= 8;
+    //     sector_id += cid_b[i] as u64;
+    // }
+    // staged_state.sector_id_nonce = sector_id;
+
+    let sector_id = staged_state.sector_id_nonce;
+    let access = sector_manager.new_staging_sector_access(sector_id)?;
+
+    let meta = StagedSectorMetadata {
+        pieces: Default::default(),
+        sector_access: access.clone(),
+        sector_id,
+        seal_status: SealStatus::Pending,
+    };
+
+    staged_state.sectors.insert(meta.sector_id, meta.clone());
+
+    Ok(sector_id)
+}
+
+// Get a determined sector_id from a cid
+fn get_sectorid_from_cid(cid: String) -> Result<SectorId> {
     let cid_b = piece_key.as_bytes();
     let l = cid_b.len();
     if l < 8 {
@@ -115,19 +149,7 @@ fn provision_new_staged_sector(
         sector_id <<= 8;
         sector_id += cid_b[i] as u64;
     }
-    staged_state.sector_id_nonce = sector_id;
-
-    let access = sector_manager.new_staging_sector_access(sector_id)?;
-
-    let meta = StagedSectorMetadata {
-        pieces: Default::default(),
-        sector_access: access.clone(),
-        sector_id,
-        seal_status: SealStatus::Pending,
-    };
-
-    staged_state.sectors.insert(meta.sector_id, meta.clone());
-
+    
     Ok(sector_id)
 }
 
