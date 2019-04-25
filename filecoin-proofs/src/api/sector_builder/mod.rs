@@ -16,6 +16,7 @@ use sector_base::api::bytes_amount::UnpaddedBytesAmount;
 use sector_base::api::disk_backed_storage::new_sector_store;
 use sector_base::api::disk_backed_storage::ConfiguredStore;
 use sector_base::api::sector_store::SectorStore;
+use sector_base::api::SectorId;
 
 pub mod errors;
 mod helpers;
@@ -30,7 +31,7 @@ const NUM_SEAL_WORKERS: usize = 2;
 const FATAL_NOSEND_TASK: &str = "[run_blocking] could not send";
 const FATAL_NORECV_TASK: &str = "[run_blocking] could not recv";
 
-pub type SectorId = u64;
+// pub type SectorId = u64;
 
 pub struct SectorBuilder {
     // Prevents FFI consumers from queueing behind long-running seal operations.

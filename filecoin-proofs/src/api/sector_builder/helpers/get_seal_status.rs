@@ -2,7 +2,9 @@ use crate::api::sector_builder::errors::err_unrecov;
 use crate::api::sector_builder::metadata::SealStatus;
 use crate::api::sector_builder::state::SealedState;
 use crate::api::sector_builder::state::StagedState;
-use crate::api::sector_builder::SectorId;
+// use crate::api::sector_builder::SectorId;
+use sector_base::api::SectorId;
+
 use crate::error;
 
 pub fn get_seal_status(

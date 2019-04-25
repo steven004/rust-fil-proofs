@@ -1,8 +1,7 @@
 
 use crate::api::bytes_amount::{PaddedBytesAmount, UnpaddedBytesAmount};
 use crate::api::errors::SectorManagerErr;
-
-type SectorId = u64;
+use crate::api::SectorId;
 
 pub trait SectorConfig {
     /// returns the number of user-provided bytes that will fit into a sector managed by this store

@@ -1,6 +1,7 @@
 use crate::api::sector_builder::metadata::{SealedSectorMetadata, StagedSectorMetadata};
-use crate::api::sector_builder::SectorId;
+// use crate::api::sector_builder::SectorId;
 use std::collections::HashMap;
+use sector_base::api::SectorId;
 
 #[derive(Default, Serialize, Deserialize, Debug, PartialEq)]
 pub struct StagedState {

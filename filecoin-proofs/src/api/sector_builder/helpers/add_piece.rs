@@ -8,6 +8,7 @@ use crate::api::sector_builder::*;
 use crate::error;
 use sector_base::api::bytes_amount::UnpaddedBytesAmount;
 use sector_base::api::sector_store::SectorManager;
+use sector_base::api::SectorId;
 
 pub fn add_piece(
     sector_store: &Arc<WrappedSectorStore>,

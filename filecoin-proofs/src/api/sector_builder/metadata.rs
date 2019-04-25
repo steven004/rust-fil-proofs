@@ -1,4 +1,5 @@
-use crate::api::sector_builder::SectorId;
+// use crate::api::sector_builder::SectorId;
+use sector_base::api::SectorId;
 use crate::error;
 use crate::serde_big_array::BigArray;
 use byteorder::LittleEndian;

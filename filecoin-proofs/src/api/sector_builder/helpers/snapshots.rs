@@ -51,7 +51,8 @@ mod tests {
     use crate::api::sector_builder::metadata::StagedSectorMetadata;
     use crate::api::sector_builder::state::SealedState;
     use crate::api::sector_builder::state::StagedState;
-    use crate::api::sector_builder::SectorId;
+    // use crate::api::sector_builder::SectorId;
+    use sector_base::api::SectorId;
     use crate::api::sector_builder::WrappedKeyValueStore;
     use std::collections::HashMap;
     use std::sync::Arc;

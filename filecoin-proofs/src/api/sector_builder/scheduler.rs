@@ -14,12 +14,13 @@ use crate::api::sector_builder::metadata::StagedSectorMetadata;
 use crate::api::sector_builder::sealer::SealerInput;
 use crate::api::sector_builder::state::SectorBuilderState;
 use crate::api::sector_builder::state::StagedState;
-use crate::api::sector_builder::SectorId;
+//use crate::api::sector_builder::SectorId;
 use crate::api::sector_builder::WrappedKeyValueStore;
 use crate::api::sector_builder::WrappedSectorStore;
 use crate::error::ExpectWithBacktrace;
 use crate::error::Result;
 use sector_base::api::bytes_amount::UnpaddedBytesAmount;
+use sector_base::api::SectorId;
 
 use std::collections::HashMap;
 use std::sync::mpsc;

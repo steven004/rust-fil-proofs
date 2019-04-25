@@ -11,6 +11,7 @@ use crate::api::errors::SectorManagerErr;
 use crate::api::sector_store::SectorConfig;
 use crate::api::sector_store::SectorManager;
 use crate::api::sector_store::SectorStore;
+use crate::api::SectorId;
 // use crate::api::util;
 use crate::io::fr32::almost_truncate_to_unpadded_bytes;
 use crate::io::fr32::target_unpadded_bytes;
@@ -18,7 +19,6 @@ use crate::io::fr32::unpadded_bytes;
 use crate::io::fr32::write_padded;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
 
-type SectorId = u64;
 
 // These sizes are for SEALED sectors. They are used to calculate the values of setup parameters.
 // They can be overridden by setting the corresponding environment variable (with FILECOIN_PROOFS_ prefix),
