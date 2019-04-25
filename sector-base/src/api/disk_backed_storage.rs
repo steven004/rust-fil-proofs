@@ -1,22 +1,24 @@
 use libc;
 use std::fs::{create_dir_all, remove_file, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
-
-extern crate filecoin_proofs;
+// use std::path::{Path, PathBuf};
+use std::path::Path;
+use byteorder::{BigEndian, WriteBytesExt};
+use std::{mem, str};
 
 use crate::api::bytes_amount::{PaddedBytesAmount, UnpaddedBytesAmount};
 use crate::api::errors::SectorManagerErr;
 use crate::api::sector_store::SectorConfig;
 use crate::api::sector_store::SectorManager;
 use crate::api::sector_store::SectorStore;
-use crate::api::util;
+// use crate::api::util;
 use crate::io::fr32::almost_truncate_to_unpadded_bytes;
 use crate::io::fr32::target_unpadded_bytes;
 use crate::io::fr32::unpadded_bytes;
 use crate::io::fr32::write_padded;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
-use filecoin-proofs::api::sector_builder::SectorId;
+
+type SectorId = u64;
 
 // These sizes are for SEALED sectors. They are used to calculate the values of setup parameters.
 // They can be overridden by setting the corresponding environment variable (with FILECOIN_PROOFS_ prefix),
@@ -178,8 +180,7 @@ impl DiskManager {
             .map_err(|err| SectorManagerErr::ReceiverError(format!("{:?}", err)))?;
         
         let filename = str::from_utf8(&bs)
-            .map_err(|err| SectorManagerErr::ReceiverError(format!("{:?}", err)))
-            .unwarp()?;
+            .map_err(|err| SectorManagerErr::ReceiverError(format!("{:?}", err)))?;
 
         let pbuf = root.join(filename);
 
